@@ -18,7 +18,7 @@ const createNotification = async ({
   expiresAt = null
 }) => {
   try {
-    await Notification.create({
+    const notif = await Notification.create({
       user: userId,
       title,
       message,
@@ -32,8 +32,18 @@ const createNotification = async ({
       metadata,
       expiresAt
     });
+
+    try {
+      const { emitToUser } = require('./socketService');
+      emitToUser(String(userId), 'notification:new', notif);
+    } catch (sockErr) {
+      // socket emission should not block
+    }
+
+    return notif;
   } catch (err) {
     console.error('Notification creation error:', err.message);
+    return null;
   }
 };
 

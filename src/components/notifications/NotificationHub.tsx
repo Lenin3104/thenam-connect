@@ -33,6 +33,8 @@ interface NotifCard {
   date?: string;
   // task-specific
   taskId?: string;
+  projectId?: string;
+  actionUrl?: string;
   taskTitle?: string;
   submittedByName?: string;
   denialReason?: string;
@@ -140,6 +142,11 @@ export function NotificationHub() {
     };
 
     const handleTaskAssigned = (data: any) => {
+      const actUrl =
+        data.actionUrl ||
+        (data.projectId
+          ? `/projects?projectId=${data.projectId}&taskId=${data.taskId}`
+          : `/projects?taskId=${data.taskId}`);
       addCard({
         id: `task_assigned_${data.taskId}`,
         type: "task_assigned",
@@ -149,7 +156,9 @@ export function NotificationHub() {
         date: data.dueDate
           ? new Date(data.dueDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
           : undefined,
-        taskId: data.taskId
+        taskId: data.taskId,
+        projectId: data.projectId,
+        actionUrl: actUrl
       });
     };
 
@@ -261,7 +270,15 @@ export function NotificationHub() {
 
   const handleViewTask = (card: NotifCard) => {
     removeCard(card.id);
-    navigate({ to: "/tasks" });
+    if (card.actionUrl) {
+      window.location.href = card.actionUrl;
+    } else if (card.taskId) {
+      window.location.href = card.projectId
+        ? `/projects?projectId=${card.projectId}&taskId=${card.taskId}`
+        : `/projects?taskId=${card.taskId}`;
+    } else {
+      navigate({ to: "/tasks" });
+    }
   };
 
   const approveRevert = useApproveRevertRequest();

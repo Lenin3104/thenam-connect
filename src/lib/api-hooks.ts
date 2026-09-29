@@ -281,6 +281,19 @@ export const useCreateProject = () => {
   });
 };
 
+export const useProject = (id?: string) => {
+  return useQuery({
+    queryKey: ['project', id],
+    queryFn: async () => {
+      if (!id) return null;
+      const res = await api.get(`/projects/${id}`);
+      return res.data.data;
+    },
+    enabled: !!id,
+    retry: 1
+  });
+};
+
 // --- Task Hooks ---
 
 export const useTasks = (params?: { venture?: string; project?: string; assignedTo?: string }) => {
@@ -290,6 +303,19 @@ export const useTasks = (params?: { venture?: string; project?: string; assigned
       const res = await api.get('/tasks', { params });
       return res.data.data;
     }
+  });
+};
+
+export const useTask = (id?: string) => {
+  return useQuery({
+    queryKey: ['task', id],
+    queryFn: async () => {
+      if (!id) return null;
+      const res = await api.get(`/tasks/${id}`);
+      return res.data.data;
+    },
+    enabled: !!id,
+    retry: 1
   });
 };
 
@@ -692,7 +718,16 @@ export const useActiveAnnouncements = () => {
 export const useCreateAnnouncement = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { title: string; content: string; pinned?: boolean }) => {
+    mutationFn: async (payload: {
+      title: string;
+      content: string;
+      message?: string;
+      priority?: string;
+      targetAudience?: string;
+      department?: string;
+      targetUsers?: string[];
+      pinned?: boolean;
+    }) => {
       const res = await api.post('/announcements', payload);
       return res.data.data;
     },

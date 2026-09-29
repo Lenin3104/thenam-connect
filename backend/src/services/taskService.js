@@ -23,13 +23,14 @@ const getUserRole = (user) => {
 };
 
 /**
- * Send notification alerts to assigned employee, their team members, and the project manager (team lead)
+ * Send notification alerts strictly and solely to the assigned employee.
+ * Does NOT broadcast to other employees or team members.
  */
 const sendTaskAssignmentNotifications = async (task) => {
   try {
     const recipientUserIds = new Set();
 
-    // 1. Assigned Employee
+    // 1. Target ONLY the Assigned Employee
     let assignedEmp = null;
     if (task.assignedTo) {
       assignedEmp = await Employee.findById(task.assignedTo);
@@ -52,37 +53,31 @@ const sendTaskAssignmentNotifications = async (task) => {
       }
     }
 
-    // 2. Team & Team Members
-    let teamObj = null;
-    if (assignedEmp && assignedEmp.team) {
-      teamObj = await Team.findById(assignedEmp.team);
-      const teamMates = await Employee.find({ team: assignedEmp.team });
-      const emails = teamMates.map((e) => e.email?.toLowerCase()).filter(Boolean);
-      if (emails.length > 0) {
-        const teamUsers = await User.find({ email: { $in: emails } });
-        teamUsers.forEach((u) => recipientUserIds.add(String(u._id)));
-      }
+    if (recipientUserIds.size === 0) {
+      return;
     }
 
-    // 3. Project Manager / Team Lead
     let projectObj = null;
     if (task.project) {
-      projectObj = await Project.findById(task.project).populate('manager');
-      if (projectObj && projectObj.manager && projectObj.manager.email) {
-        const pmUser = await User.findOne({ email: new RegExp(`^${projectObj.manager.email.trim()}$`, 'i') });
-        if (pmUser) recipientUserIds.add(String(pmUser._id));
-      }
+      projectObj = await Project.findById(task.project);
+    }
+
+    let assignerUser = null;
+    if (task.assignedBy) {
+      assignerUser = await User.findById(task.assignedBy);
     }
 
     const deadlineStr = task.deadline
       ? new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : 'No deadline set';
     const projectName = projectObj ? projectObj.name : 'General Project';
-    const teamName = teamObj ? teamObj.teamName : (assignedEmp?.department || 'Team');
-    const descriptionText = task.description ? task.description.trim() : 'No description provided';
+    const projectIdStr = projectObj ? String(projectObj._id) : (task.project ? String(task.project) : '');
+    const managerName = assignerUser ? assignerUser.name : 'Project Manager';
+    const descriptionText = task.description ? task.description.trim() : '';
 
     const title = `New Task Assigned: ${task.title}`;
-    const message = `Project: ${projectName} | Team: ${teamName} | Deadline: ${deadlineStr} | Description: ${descriptionText}`;
+    const message = `Project: ${projectName} | Priority: ${task.priority || 'Medium'} | Deadline: ${deadlineStr} | Assigned by: ${managerName}`;
+    const actionUrl = projectIdStr ? `/projects?projectId=${projectIdStr}&taskId=${task._id}` : `/projects?taskId=${task._id}`;
 
     for (const userId of recipientUserIds) {
       await createNotification({
@@ -92,16 +87,26 @@ const sendTaskAssignmentNotifications = async (task) => {
         type: 'task_assigned',
         entityType: 'Task',
         entityId: task._id,
-        actionUrl: '/tasks',
-        icon: 'check-square'
+        relatedId: projectIdStr || null,
+        relatedType: 'Project',
+        actionUrl,
+        icon: 'check-square',
+        metadata: {
+          projectId: projectIdStr || null,
+          taskId: String(task._id),
+          taskTitle: task.title,
+          assignedBy: managerName
+        }
       });
 
-      // Realtime socket notification to the assigned user
+      // Realtime socket notification to the specific assigned user
       emitToUser(userId, 'task:assigned', {
-        taskId: task._id,
+        taskId: String(task._id),
+        projectId: projectIdStr,
         taskTitle: task.title,
-        assignedBy: task.assignedBy,
+        assignedByName: managerName,
         dueDate: task.deadline,
+        actionUrl,
         message
       });
     }

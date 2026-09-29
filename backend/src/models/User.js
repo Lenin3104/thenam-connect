@@ -35,9 +35,12 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true
     },
+    role: {
+      type: String,
+      trim: true
+    },
     roles: [{
       type: String,
-      enum: ['founder', 'admin', 'developer', 'designer', 'analyst', 'finance', 'Founder', 'Admin', 'Developer', 'Designer', 'Analyst', 'Finance'],
       default: 'developer'
     }],
     plainPassword: {
@@ -117,16 +120,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Virtual: role alias for roles[0] to support single role compatibility
-userSchema.virtual('role')
-  .get(function () {
-    return this.roles && this.roles.length > 0 ? this.roles[0] : 'developer';
-  })
-  .set(function (value) {
-    if (value) {
-      this.roles = [value];
-    }
-  });
+// Index definitions
 
 userSchema.index({ roles: 1 });
 userSchema.index({ status: 1 });

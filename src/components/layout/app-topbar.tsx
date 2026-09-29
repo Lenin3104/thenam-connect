@@ -240,7 +240,11 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
                       key={n._id}
                       onClick={() => {
                         if (!n.isRead) markAsReadMutation.mutate(n._id);
-                        navigate({ to: "/communication" });
+                        if (n.actionUrl) {
+                          window.location.href = n.actionUrl;
+                        } else {
+                          navigate({ to: "/communication" });
+                        }
                       }}
                       className={`p-2.5 rounded-xl cursor-pointer text-xs transition border flex items-start gap-2.5 ${
                         !n.isRead

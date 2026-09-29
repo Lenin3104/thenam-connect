@@ -40,12 +40,37 @@ const announcementSchema = new mongoose.Schema(
       type: Date,
       index: true
     },
-    // 'all' | 'users' | 'roles'
+    // 'all' | 'users' | 'roles' | 'department'
     targetType: {
       type: String,
-      enum: ['all', 'users', 'roles'],
+      enum: ['all', 'users', 'roles', 'department'],
       default: 'all'
     },
+    targetAudience: {
+      type: String,
+      default: 'Everyone' // 'Everyone' | 'Department' | 'Selected Employees'
+    },
+    priority: {
+      type: String,
+      enum: ['Normal', 'Important', 'Urgent', 'Low', 'Medium', 'High'],
+      default: 'Normal'
+    },
+    department: {
+      type: String,
+      default: ''
+    },
+    status: {
+      type: String,
+      default: 'Published'
+    },
+    attachments: [
+      {
+        name: String,
+        url: String,
+        type: { type: String },
+        size: Number
+      }
+    ],
     // When targetType = 'users', list of user IDs
     targetUsers: [
       {

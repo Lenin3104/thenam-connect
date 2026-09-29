@@ -156,12 +156,34 @@ function RootComponent() {
       });
     };
 
+    const handleNotificationNew = () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
+
+    const handleTaskAssigned = () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    };
+
+    const handleAnnouncementNew = () => {
+      queryClient.invalidateQueries({ queryKey: ["announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["announcements-active"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
+
     socket.on("connect", handleConnect);
     socket.on("invalidate", handleInvalidate);
+    socket.on("notification:new", handleNotificationNew);
+    socket.on("task:assigned", handleTaskAssigned);
+    socket.on("announcement:new", handleAnnouncementNew);
 
     return () => {
       socket.off("connect", handleConnect);
       socket.off("invalidate", handleInvalidate);
+      socket.off("notification:new", handleNotificationNew);
+      socket.off("task:assigned", handleTaskAssigned);
+      socket.off("announcement:new", handleAnnouncementNew);
     };
   }, [queryClient]);
 
