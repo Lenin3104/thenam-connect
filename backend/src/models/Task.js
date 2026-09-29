@@ -195,7 +195,6 @@ taskSchema.index({ project: 1, status: 1 });
 taskSchema.index({ assignedTo: 1, status: 1 });
 taskSchema.index({ venture: 1, status: 1 });
 taskSchema.index({ deadline: 1, status: 1 });
-taskSchema.index({ rewardPointAwarded: 1 });
 taskSchema.index({ createdAt: -1 });
 
 module.exports = mongoose.model('Task', taskSchema);

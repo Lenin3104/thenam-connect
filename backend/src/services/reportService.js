@@ -2,6 +2,9 @@ const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
 const Task = require('../models/Task');
 const Employee = require('../models/Employee');
+const Project = require('../models/Project');
+const Venture = require('../models/Venture');
+const User = require('../models/User');
 const AppError = require('../utils/AppError');
 const { resolveEmployee } = require('../utils/resolveEmployee');
 

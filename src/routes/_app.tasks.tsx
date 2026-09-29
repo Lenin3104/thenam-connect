@@ -10,8 +10,10 @@ import { useState } from "react";
 import {
   useTasks, useCreateTask, useUpdateTaskStatus, useProjects, useEmployees,
   useVentures, useDeleteTask, useUpdateTask,
-  useSubmitTaskCompletion, useApproveTaskCompletion, useDenyTaskCompletion
+  useSubmitTaskCompletion, useApproveTaskCompletion, useDenyTaskCompletion,
+  useCompleteTask
 } from "@/lib/api-hooks";
+import confetti from "canvas-confetti";
 import { useAuthStore } from "@/store/authStore";
 import { Badge } from "@/components/ui/badge";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
@@ -65,6 +67,7 @@ export function TasksPage() {
   const submitCompletion = useSubmitTaskCompletion();
   const approveCompletion = useApproveTaskCompletion();
   const denyCompletion = useDenyTaskCompletion();
+  const completeTask = useCompleteTask();
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -86,6 +89,31 @@ export function TasksPage() {
   // Task detail dialog (for "Verify Task")
   const [verifyTask, setVerifyTask] = useState<any | null>(null);
 
+  const handleComplete = (taskId: string, remarks?: string) => {
+    completeTask.mutate(
+      { taskId, remarks },
+      {
+        onSuccess: (data: any) => {
+          const msg = data?.message || "Task Completed! +1 Leaderboard Point Earned";
+          toast.success(msg, {
+            icon: "🎉",
+            duration: 4000
+          });
+          try {
+            confetti({
+              particleCount: 75,
+              spread: 65,
+              origin: { y: 0.65 }
+            });
+          } catch (_) {}
+        },
+        onError: (err: any) => {
+          toast.error(err.response?.data?.message || "Failed to complete task");
+        }
+      }
+    );
+  };
+
   const onDragEnd = (result: any) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
@@ -93,12 +121,9 @@ export function TasksPage() {
 
     const newStatus = destination.droppableId;
 
-    // ── Frontend guard: non-management cannot drop to Completed ──────────────
-    if (!isManagement && (newStatus === "Completed" || newStatus === "Pending_Approval")) {
-      if (newStatus === "Completed") {
-        toast.error("🔒 Admin approval required to complete tasks. Use 'Submit for Completion' instead.");
-        return;
-      }
+    if (newStatus === "Completed") {
+      handleComplete(draggableId);
+      return;
     }
 
     updateTaskStatus.mutate(
@@ -181,9 +206,8 @@ export function TasksPage() {
   };
 
   const handleStatusChange = (id: string, newStatus: string) => {
-    // Frontend guard
-    if (!isManagement && newStatus === "Completed") {
-      toast.error("🔒 Admin approval required. Use 'Submit for Completion' instead.");
+    if (newStatus === "Completed") {
+      handleComplete(id);
       return;
     }
     updateTaskStatus.mutate(
@@ -309,26 +333,22 @@ export function TasksPage() {
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
               {visibleStatuses.map((st) => {
                 const statusTasks = tasks.filter((t: any) => t.status === st);
-                const isLockedForEmployee = !isManagement && st === "Completed";
                 const isPendingApproval = st === "Pending_Approval";
 
                 return (
                   <Droppable
                     key={st}
                     droppableId={st}
-                    isDropDisabled={isLockedForEmployee}
+                    isDropDisabled={false}
                   >
                     {(provided) => (
                       <div
                         ref={provided.innerRef}
                         {...provided.droppableProps}
-                        className={`rounded-2xl border p-4 flex flex-col min-h-[340px] transition-colors ${getStatusColor(st)} ${isLockedForEmployee ? "opacity-75" : ""}`}
+                        className={`rounded-2xl border p-4 flex flex-col min-h-[340px] transition-colors ${getStatusColor(st)}`}
                       >
                         <div className="mb-3 flex items-center justify-between">
                           <div className="flex items-center gap-1.5">
-                            {isLockedForEmployee && (
-                              <Lock className="h-3 w-3 text-muted-foreground" />
-                            )}
                             {isPendingApproval && (
                               <Clock className="h-3 w-3 text-purple-400" />
                             )}
@@ -338,12 +358,6 @@ export function TasksPage() {
                             {statusTasks.length}
                           </Badge>
                         </div>
-
-                        {isLockedForEmployee && (
-                          <p className="text-[10px] text-muted-foreground text-center mb-2">
-                            🔒 Admin approval required
-                          </p>
-                        )}
 
                         <div className="space-y-3 flex-1 overflow-y-auto min-h-[200px]">
                           {statusTasks.length === 0 ? (
@@ -358,14 +372,14 @@ export function TasksPage() {
                                   key={taskId}
                                   draggableId={taskId}
                                   index={index}
-                                  isDragDisabled={isLockedForEmployee}
+                                  isDragDisabled={false}
                                 >
                                   {(draggableProvided, snapshot) => (
                                     <div
                                       ref={draggableProvided.innerRef}
                                       {...draggableProvided.draggableProps}
                                       {...draggableProvided.dragHandleProps}
-                                      className={`p-3 bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-shadow group flex flex-col justify-between ${isLockedForEmployee ? "cursor-default" : "cursor-grab active:cursor-grabbing"} ${snapshot.isDragging ? "ring-2 ring-primary shadow-lg" : ""}`}
+                                      className={`p-3 bg-card border border-border rounded-xl shadow-sm hover:shadow-md transition-shadow group flex flex-col justify-between cursor-grab active:cursor-grabbing ${snapshot.isDragging ? "ring-2 ring-primary shadow-lg" : ""}`}
                                     >
                                       <div>
                                         <div className="flex items-start justify-between gap-1">
@@ -418,7 +432,7 @@ export function TasksPage() {
                                       </div>
 
                                       <div className="mt-3 pt-2 border-t border-border/50 flex flex-col gap-2">
-                                        {/* Status select — only show statuses allowed for role */}
+                                        {/* Status select — all statuses available */}
                                         <div className="flex items-center justify-between text-xs">
                                           <select
                                             value={t.status}
@@ -426,12 +440,7 @@ export function TasksPage() {
                                             onClick={(e) => e.stopPropagation()}
                                             className="text-[11px] bg-muted/60 border border-border rounded-md px-1.5 py-0.5 text-foreground focus:outline-none"
                                           >
-                                            {/* Non-management can't select Completed or set Pending_Approval directly */}
-                                            {ALL_STATUSES.filter((s) => {
-                                              if (!isManagement && s === "Completed") return false;
-                                              if (!isManagement && s === "Pending_Approval") return false;
-                                              return true;
-                                            }).map((s) => (
+                                            {ALL_STATUSES.map((s) => (
                                               <option key={s} value={s}>
                                                 {getStatusLabel(s)}
                                               </option>
@@ -452,22 +461,21 @@ export function TasksPage() {
                                           </Badge>
                                         </div>
 
-                                        {/* Submit for Completion button — only for non-management on In Progress / Review tasks */}
-                                        {!isManagement &&
-                                          (t.status === "In Progress" || t.status === "Review") && (
-                                            <Button
-                                              size="sm"
-                                              className="w-full h-6 text-[10px] rounded-lg bg-purple-600 hover:bg-purple-700 text-white gap-1"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleSubmitForCompletion(taskId);
-                                              }}
-                                              disabled={submitCompletion.isPending}
-                                            >
-                                              <Send className="w-2.5 h-2.5" />
-                                              Submit for Completion
-                                            </Button>
-                                          )}
+                                        {/* Complete Task button with +1 point reward */}
+                                        {t.status !== "Completed" && (
+                                          <Button
+                                            size="sm"
+                                            className="w-full h-6 text-[10px] rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white gap-1 cursor-pointer shadow-sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleComplete(taskId);
+                                            }}
+                                            disabled={completeTask.isPending}
+                                          >
+                                            <CheckCircle2 className="w-2.5 h-2.5" />
+                                            Complete Task (+1 pt)
+                                          </Button>
+                                        )}
 
                                         {/* Admin Approve/Deny for Pending_Approval tasks */}
                                         {isManagement && t.status === "Pending_Approval" && (
