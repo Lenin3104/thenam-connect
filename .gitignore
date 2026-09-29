@@ -31,6 +31,7 @@ dist-ssr
 *.sln
 *.sw?
 
+
 # Environment & Credentials
 .env
 .env.local
@@ -38,4 +39,5 @@ dist-ssr
 firebase-service-account.json
 *.bak
 *.local
+.env1
 

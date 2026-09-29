@@ -10,6 +10,8 @@ const { normalizeRole } = require('../config/rbac');
 const { emitToUser, emitToRole } = require('./socketService');
 
 const Team = require('../models/Team');
+const { resolveEmployee } = require('../utils/resolveEmployee');
+const { recordTaskCompletionReward } = require('./rewardService');
 
 const MANAGEMENT_ROLES = ['admin', 'founder', 'manager', 'super admin'];
 
@@ -261,10 +263,17 @@ const updateTaskStatus = async (id, status, user = null) => {
   if (status === 'Completed') {
     task.progress = 100;
     task.completedDate = new Date();
+    if (!task.completionRemarks) {
+      task.completionRemarks = 'Marked completed';
+    }
   }
   await task.save();
 
   if (status === 'Completed' && task.assignedTo) {
+    const emp = await Employee.findById(task.assignedTo);
+    if (emp) {
+      await recordTaskCompletionReward(task, emp, task.completionRemarks);
+    }
     await recalculatePerformance(task.assignedTo);
   }
 
@@ -382,9 +391,16 @@ const approveCompletion = async (id, user) => {
   task.approvedBy = userId;
   task.approvedByName = user.name || '';
   task.approvedAt = new Date();
+  if (!task.completionRemarks) {
+    task.completionRemarks = 'Approved by admin';
+  }
   await task.save();
 
   if (task.assignedTo) {
+    const emp = await Employee.findById(task.assignedTo);
+    if (emp) {
+      await recordTaskCompletionReward(task, emp, task.completionRemarks);
+    }
     await recalculatePerformance(task.assignedTo);
   }
 
@@ -527,6 +543,91 @@ const deleteTask = async (id, user = null) => {
   return null;
 };
 
+/**
+ * Employee completes a task directly:
+ * PATCH /api/tasks/:id/complete
+ * - Authenticate employee
+ * - Verify ownership (assigned to employee, or management override)
+ * - Check task status
+ * - Mark completed
+ * - Add exactly 1 point
+ * - Prevent duplicate points
+ * - Return updated task and reward information
+ */
+const completeTask = async (id, user, remarks = '') => {
+  const task = await Task.findById(id);
+  if (!task) throw new AppError('Task not found', 404);
+
+  const emp = await resolveEmployee(user);
+  const userRole = getUserRole(user);
+  const isManagement = MANAGEMENT_ROLES.includes(userRole);
+
+  const empIdStr = emp ? String(emp._id) : null;
+  const isAssigned = empIdStr && task.assignedTo && String(task.assignedTo) === empIdStr;
+
+  if (!isAssigned && !isManagement) {
+    throw new AppError('Forbidden: Only the assigned employee or manager can complete this task', 403);
+  }
+
+  let targetEmployee = null;
+  if (task.assignedTo) {
+    targetEmployee = await Employee.findById(task.assignedTo);
+  }
+  if (!targetEmployee && emp) {
+    targetEmployee = emp;
+    task.assignedTo = emp._id;
+  }
+
+  // Calculate duration
+  const start = task.createdAt || new Date();
+  const end = new Date();
+  const diffMs = Math.max(0, end.getTime() - new Date(start).getTime());
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const durationStr = diffDays > 0 ? `${diffDays}d ${diffHours}h` : `${Math.max(1, diffHours)}h`;
+
+  task.completionDuration = durationStr;
+  task.completionRemarks = remarks || task.completionRemarks || 'Completed by employee';
+  task.status = 'Completed';
+  task.progress = 100;
+  task.completedDate = task.completedDate || end;
+
+  let rewardResult = { pointsAwarded: 0, alreadyAwarded: true };
+  if (targetEmployee) {
+    rewardResult = await recordTaskCompletionReward(task, targetEmployee, task.completionRemarks);
+  } else {
+    await task.save();
+  }
+
+  if (task.assignedTo) {
+    await recalculatePerformance(task.assignedTo);
+  }
+
+  await logActivity({
+    userId: user._id || user.id,
+    action: 'Completed Task',
+    entity: 'Task',
+    entityId: task._id,
+    entityName: task.title
+  });
+
+  const updatedTask = await Task.findById(id)
+    .populate('venture', 'name key')
+    .populate('project', 'name')
+    .populate('assignedTo', 'name avatar department employeeId')
+    .populate('assignedBy', 'name');
+
+  return {
+    task: updatedTask,
+    pointsAwarded: rewardResult.pointsAwarded,
+    alreadyAwarded: rewardResult.alreadyAwarded,
+    totalPoints: rewardResult.employeeReward?.totalPoints ?? (targetEmployee?.rewardPoints || 0),
+    message: rewardResult.pointsAwarded > 0
+      ? 'Task Completed! +1 Leaderboard Point Earned'
+      : 'Task marked as Completed. (Point was already awarded previously)'
+  };
+};
+
 module.exports = {
   createTask,
   listTasks,
@@ -536,5 +637,6 @@ module.exports = {
   submitForCompletion,
   approveCompletion,
   denyCompletion,
-  deleteTask
+  deleteTask,
+  completeTask
 };

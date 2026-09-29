@@ -307,7 +307,7 @@ export const useCreateTask = () => {
   });
 };
 
-// --- Reward Hooks ---
+// --- Reward & Leaderboard Hooks ---
 
 export const useRewards = (params?: { employee?: string }) => {
   return useQuery({
@@ -317,6 +317,97 @@ export const useRewards = (params?: { employee?: string }) => {
       return res.data.data;
     }
   });
+};
+
+export const useLeaderboard = (params?: { department?: string; search?: string; limit?: number }) => {
+  return useQuery({
+    queryKey: ['leaderboard', params],
+    queryFn: async () => {
+      const res = await api.get('/rewards/leaderboard', { params });
+      return res.data.data;
+    }
+  });
+};
+
+export const useMyRewards = () => {
+  return useQuery({
+    queryKey: ['rewards-me'],
+    queryFn: async () => {
+      const res = await api.get('/rewards/me');
+      return res.data.data;
+    }
+  });
+};
+
+export const useCompleteTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ taskId, remarks }: { taskId: string; remarks?: string }) => {
+      const res = await api.patch(`/tasks/${taskId}/complete`, { remarks });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['my-task-report'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards-me'] });
+      queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+    }
+  });
+};
+
+// --- Task Completion Report Hooks ---
+
+export const useMyTaskReport = (params?: {
+  search?: string;
+  status?: string;
+  priority?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  sortOrder?: string;
+}) => {
+  return useQuery({
+    queryKey: ['my-task-report', params],
+    queryFn: async () => {
+      const res = await api.get('/reports/my-tasks', { params });
+      return res.data.data;
+    }
+  });
+};
+
+export const downloadMyTaskReportPDF = async (params?: Record<string, any>) => {
+  const res = await api.get('/reports/my-tasks/pdf', {
+    params,
+    responseType: 'blob'
+  });
+  const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `Thenam_Task_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+export const downloadMyTaskReportExcel = async (params?: Record<string, any>) => {
+  const res = await api.get('/reports/my-tasks/excel', {
+    params,
+    responseType: 'blob'
+  });
+  const url = window.URL.createObjectURL(
+    new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  );
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `Thenam_Task_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 // --- Setting Hooks ---
