@@ -5,8 +5,13 @@ const Employee = require('../models/Employee');
 const Project = require('../models/Project');
 const Venture = require('../models/Venture');
 const User = require('../models/User');
+const ReportEmail = require('../models/ReportEmail');
 const AppError = require('../utils/AppError');
 const { resolveEmployee } = require('../utils/resolveEmployee');
+const emailService = require('./emailService');
+const notificationService = require('./notificationService');
+const { logActivity } = require('./activityService');
+const { normalizeRole } = require('../config/rbac');
 
 /**
  * Helper to compute human-readable duration between two dates
@@ -421,8 +426,378 @@ const generateMyTaskReportExcel = async (user, options = {}) => {
   return { buffer, reportData };
 };
 
+/**
+ * Admin sends an employee task completion report via email.
+ * Includes optional PDF, Excel, and task summary.
+ */
+const sendEmployeeReportEmail = async ({
+  adminUser,
+  employeeId,
+  subject,
+  message,
+  includeTaskSummary = true,
+  includePdf = true,
+  includeExcel = false,
+  req = null
+}) => {
+  // 1. Role verification
+  const role = normalizeRole(adminUser.userRole || adminUser.role);
+  const isAuthorized = ['admin', 'founder', 'manager', 'super admin', 'ceo'].includes(role);
+  if (!isAuthorized) {
+    throw new AppError('You do not have permission to send employee reports.', 403);
+  }
+
+  // 2. Validate employeeId and find employee
+  if (!employeeId) {
+    throw new AppError('Employee ID is required.', 400);
+  }
+
+  const employee = await Employee.findById(employeeId);
+  if (!employee) {
+    throw new AppError('Employee not found.', 404);
+  }
+
+  // 3. Validate employee email
+  const recipientEmail = (employee.email || '').trim();
+  if (!recipientEmail || !recipientEmail.includes('@')) {
+    throw new AppError('Unable to send email. This employee does not have a registered email address.', 400);
+  }
+
+  // 4. Retrieve the employee's report data using existing report engine
+  let reportData;
+  try {
+    reportData = await getMyTaskReport(employee);
+  } catch (err) {
+    console.error('Report data retrieval error:', err);
+    throw new AppError('Unable to generate the employee report.', 500);
+  }
+
+  // 5. Generate attachments
+  const attachments = [];
+  const attachmentsList = [];
+  const safeName = (employee.name || 'Employee').replace(/[^a-zA-Z0-9_-]/g, '_');
+  let pdfBuffer = null;
+  let excelBuffer = null;
+  let pdfFilename = null;
+  let xlsxFilename = null;
+
+  if (includePdf) {
+    try {
+      const { pdfData } = await generateMyTaskReportPDF(employee);
+      pdfBuffer = pdfData;
+      pdfFilename = `Thenam_Employee_Report_${safeName}.pdf`;
+      attachments.push({
+        filename: pdfFilename,
+        content: pdfData,
+        contentType: 'application/pdf'
+      });
+      attachmentsList.push(pdfFilename);
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      throw new AppError('Unable to generate the employee report PDF.', 500);
+    }
+  }
+
+  if (includeExcel) {
+    try {
+      const { buffer } = await generateMyTaskReportExcel(employee);
+      excelBuffer = buffer;
+      xlsxFilename = `Thenam_Employee_Report_${safeName}.xlsx`;
+      attachments.push({
+        filename: xlsxFilename,
+        content: buffer,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      attachmentsList.push(xlsxFilename);
+    } catch (err) {
+      console.error('Excel generation error:', err);
+      throw new AppError('Unable to generate the employee report Excel.', 500);
+    }
+  }
+
+  // 6. Build email HTML and text
+  const emailHtml = emailService.buildReportEmailHtml({
+    employeeName: employee.name,
+    department: employee.department,
+    customMessage: message,
+    summary: includeTaskSummary ? reportData.summary : null,
+    attachmentsList
+  });
+
+  const emailText = `Hello ${employee.name},\n\nPlease find your latest task completion report from Thenam ERP Connect.\n\nEmployee: ${employee.name}\nDepartment: ${employee.department || 'General'}\n\nTotal Assigned: ${reportData.summary.totalTasks}\nCompleted: ${reportData.summary.completedTasks}\nIn Progress: ${reportData.summary.inProgressTasks}\nPending: ${reportData.summary.pendingTasks}\nOverdue: ${reportData.summary.overdueTasks}\nPoints Earned: ${reportData.summary.totalPoints}\n\n${message ? `Admin Note:\n${message}\n\n` : ''}This report was generated automatically from Thenam ERP Connect.\n\nRegards,\nAdmin\nThenam Software Solutions`;
+
+  // 7. Send actual email
+  try {
+    await emailService.sendEmail({
+      to: recipientEmail,
+      subject: subject || 'Thenam ERP - Employee Task Report',
+      html: emailHtml,
+      text: emailText,
+      attachments
+    });
+  } catch (err) {
+    console.error('Email send error:', err);
+    throw new AppError(err.message || 'Unable to send email right now. Please try again.', 500);
+  }
+
+  // 8. Resolve recipient User account for in-app notification & ownership
+  let recipientUser = null;
+  if (employee.email) {
+    recipientUser = await User.findOne({ email: new RegExp(`^${employee.email.trim()}$`, 'i') });
+  }
+  if (!recipientUser && employee.firebaseUid) {
+    recipientUser = await User.findOne({ firebaseUid: employee.firebaseUid });
+  }
+  if (!recipientUser && employee._id) {
+    recipientUser = await User.findById(employee._id);
+  }
+  if (!recipientUser && employee.name) {
+    recipientUser = await User.findOne({ name: new RegExp(`^${employee.name.trim()}$`, 'i') });
+  }
+
+  const recipientUserId = recipientUser ? recipientUser._id : employee._id;
+
+  // 9. Persist Sent Email Record with attachments and summary
+  let reportEmail = null;
+  try {
+    reportEmail = await ReportEmail.create({
+      sender: adminUser._id || adminUser.id,
+      senderName: adminUser.name || 'Administrator',
+      fromEmail: process.env.MAIL_FROM || 'admin@thenamsoftwaresolutions.com',
+      recipient: recipientUserId,
+      recipientEmployee: employee._id,
+      recipientName: employee.name,
+      recipientEmail,
+      subject: subject || 'Thenam ERP - Employee Task Report',
+      message: message || '',
+      emailHtml,
+      emailText,
+      summary: reportData.summary,
+      department: employee.department || 'General',
+      hasPdf: !!includePdf && !!pdfBuffer,
+      hasExcel: !!includeExcel && !!excelBuffer,
+      pdfAttachment: (includePdf && pdfBuffer) ? {
+        filename: pdfFilename,
+        contentType: 'application/pdf',
+        data: pdfBuffer,
+        size: pdfBuffer.length
+      } : undefined,
+      excelAttachment: (includeExcel && excelBuffer) ? {
+        filename: xlsxFilename,
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        data: excelBuffer,
+        size: excelBuffer.length
+      } : undefined,
+      status: 'SENT',
+      sentAt: new Date()
+    });
+  } catch (emailSaveErr) {
+    console.error('Error saving ReportEmail record:', emailSaveErr);
+  }
+
+  const emailId = reportEmail ? String(reportEmail._id) : null;
+
+  // 10. Create in-app notification for the target employee
+  let notif = null;
+  try {
+    notif = await notificationService.createNotification({
+      userId: recipientUserId,
+      title: 'New Employee Report Email',
+      message: `${adminUser.name || 'Admin'} sent you your Employee Task Report.`,
+      type: 'employee_report_email',
+      entityType: 'ReportEmail',
+      entityId: reportEmail ? reportEmail._id : null,
+      relatedId: reportEmail ? reportEmail._id : null,
+      relatedType: 'ReportEmail',
+      actionUrl: emailId ? `/reports?emailId=${emailId}` : '/reports',
+      icon: 'FileText',
+      metadata: {
+        emailId,
+        reportId: emailId,
+        employeeId: String(employee._id),
+        employeeName: employee.name,
+        senderName: adminUser.name || 'Admin',
+        subject: subject || 'Thenam ERP - Employee Task Report',
+        hasPdf: !!includePdf && !!pdfBuffer,
+        hasExcel: !!includeExcel && !!excelBuffer,
+        sentAt: new Date().toISOString()
+      }
+    });
+  } catch (notifErr) {
+    console.error('Error creating employee notification:', notifErr);
+  }
+
+  // 11. Emit realtime socket notification
+  try {
+    const { emitToUser } = require('./socketService');
+    const realtimePayload = {
+      notificationId: notif ? notif._id : null,
+      type: 'EMPLOYEE_REPORT_EMAIL',
+      title: 'New Employee Report Email',
+      message: `${adminUser.name || 'Admin'} sent you your Employee Task Report.`,
+      employeeId: String(employee._id),
+      emailId,
+      reportId: emailId,
+      createdAt: new Date().toISOString()
+    };
+    emitToUser(String(recipientUserId), 'employee:report_email', realtimePayload);
+    if (String(employee._id) !== String(recipientUserId)) {
+      emitToUser(String(employee._id), 'employee:report_email', realtimePayload);
+    }
+  } catch (sockErr) {
+    // Socket emission is best-effort
+  }
+
+  // 12. Record audit log
+  await logActivity({
+    userId: adminUser._id || adminUser.id,
+    userName: adminUser.name || 'Admin',
+    action: 'Sent Employee Report Email',
+    entity: 'Report',
+    entityId: employee._id,
+    entityName: `Task Report for ${employee.name}`,
+    newValue: {
+      adminName: adminUser.name,
+      adminId: String(adminUser._id || adminUser.id),
+      employeeName: employee.name,
+      employeeId: employee.employeeId || String(employee._id),
+      recipientEmail,
+      subject: subject || 'Thenam ERP - Employee Task Report',
+      reportType: 'Task Completion Report',
+      pdfAttached: !!includePdf,
+      excelAttached: !!includeExcel,
+      emailId,
+      status: 'Sent',
+      timestamp: new Date()
+    },
+    req
+  });
+
+  return {
+    success: true,
+    emailId,
+    recipientEmail,
+    employeeName: employee.name,
+    attachmentsCount: attachments.length
+  };
+};
+
+/**
+ * Retrieve sent report email details securely
+ */
+const getReportEmailById = async (emailId, user) => {
+  if (!emailId) {
+    throw new AppError('Email ID is required.', 400);
+  }
+
+  const reportEmail = await ReportEmail.findById(emailId).lean();
+  if (!reportEmail) {
+    throw new AppError('This email is no longer available.', 404);
+  }
+
+  // Security Check:
+  const userId = String(user._id || user.id);
+  const userRole = normalizeRole(user.userRole || user.role);
+  const userRoles = (user.roles || []).map((r) => normalizeRole(r));
+  const isAdmin = ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(userRole) ||
+    userRoles.some((r) => ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(r));
+
+  const isRecipient =
+    (reportEmail.recipient && String(reportEmail.recipient) === userId) ||
+    (reportEmail.recipientEmployee && String(reportEmail.recipientEmployee) === userId) ||
+    (user.email && user.email.toLowerCase() === reportEmail.recipientEmail.toLowerCase());
+
+  if (!isAdmin && !isRecipient) {
+    throw new AppError("You don't have permission to view this email.", 403);
+  }
+
+  return {
+    _id: reportEmail._id,
+    sender: reportEmail.sender,
+    senderName: reportEmail.senderName,
+    fromEmail: reportEmail.fromEmail || 'admin@thenamsoftwaresolutions.com',
+    recipient: reportEmail.recipient,
+    recipientEmployee: reportEmail.recipientEmployee,
+    recipientName: reportEmail.recipientName,
+    recipientEmail: reportEmail.recipientEmail,
+    subject: reportEmail.subject,
+    message: reportEmail.message,
+    emailHtml: reportEmail.emailHtml,
+    emailText: reportEmail.emailText,
+    summary: reportEmail.summary,
+    department: reportEmail.department,
+    hasPdf: reportEmail.hasPdf,
+    hasExcel: reportEmail.hasExcel,
+    pdfFilename: reportEmail.pdfAttachment?.filename || null,
+    pdfSize: reportEmail.pdfAttachment?.size || 0,
+    excelFilename: reportEmail.excelAttachment?.filename || null,
+    excelSize: reportEmail.excelAttachment?.size || 0,
+    status: reportEmail.status,
+    sentAt: reportEmail.sentAt,
+    createdAt: reportEmail.createdAt
+  };
+};
+
+/**
+ * Download sent report email attachment securely (PDF / Excel)
+ */
+const getReportEmailAttachment = async (emailId, type, user) => {
+  if (!emailId) {
+    throw new AppError('Email ID is required.', 400);
+  }
+
+  const reportEmail = await ReportEmail.findById(emailId);
+  if (!reportEmail) {
+    throw new AppError('This email is no longer available.', 404);
+  }
+
+  // Security Check
+  const userId = String(user._id || user.id);
+  const userRole = normalizeRole(user.userRole || user.role);
+  const userRoles = (user.roles || []).map((r) => normalizeRole(r));
+  const isAdmin = ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(userRole) ||
+    userRoles.some((r) => ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(r));
+
+  const isRecipient =
+    (reportEmail.recipient && String(reportEmail.recipient) === userId) ||
+    (reportEmail.recipientEmployee && String(reportEmail.recipientEmployee) === userId) ||
+    (user.email && user.email.toLowerCase() === reportEmail.recipientEmail.toLowerCase());
+
+  if (!isAdmin && !isRecipient) {
+    throw new AppError("You don't have permission to view this email.", 403);
+  }
+
+  if (type === 'pdf') {
+    if (!reportEmail.pdfAttachment || !reportEmail.pdfAttachment.data) {
+      throw new AppError('Report attachment is currently unavailable.', 404);
+    }
+    return {
+      buffer: reportEmail.pdfAttachment.data,
+      filename: reportEmail.pdfAttachment.filename || 'Employee_Report.pdf',
+      contentType: reportEmail.pdfAttachment.contentType || 'application/pdf'
+    };
+  }
+
+  if (type === 'excel' || type === 'xlsx') {
+    if (!reportEmail.excelAttachment || !reportEmail.excelAttachment.data) {
+      throw new AppError('Report attachment is currently unavailable.', 404);
+    }
+    return {
+      buffer: reportEmail.excelAttachment.data,
+      filename: reportEmail.excelAttachment.filename || 'Employee_Report.xlsx',
+      contentType: reportEmail.excelAttachment.contentType || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    };
+  }
+
+  throw new AppError('Invalid attachment type requested.', 400);
+};
+
 module.exports = {
   getMyTaskReport,
   generateMyTaskReportPDF,
-  generateMyTaskReportExcel
+  generateMyTaskReportExcel,
+  sendEmployeeReportEmail,
+  getReportEmailById,
+  getReportEmailAttachment
 };
+

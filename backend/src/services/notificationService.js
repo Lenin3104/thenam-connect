@@ -47,8 +47,21 @@ const createNotification = async ({
   }
 };
 
+const getUserIds = async (userId) => {
+  const ids = [userId];
+  try {
+    const { resolveEmployee } = require('../utils/resolveEmployee');
+    const emp = await resolveEmployee({ _id: userId });
+    if (emp && emp._id && String(emp._id) !== String(userId)) {
+      ids.push(emp._id);
+    }
+  } catch (e) {}
+  return ids;
+};
+
 const getNotifications = async (userId, unreadOnly = false) => {
-  const filter = { user: userId };
+  const userIds = await getUserIds(userId);
+  const filter = { user: { $in: userIds } };
   if (unreadOnly) filter.isRead = false;
   
   // Exclude expired notifications
@@ -64,16 +77,18 @@ const getNotifications = async (userId, unreadOnly = false) => {
 };
 
 const markAsRead = async (userId, notificationId) => {
+  const userIds = await getUserIds(userId);
   return Notification.findOneAndUpdate(
-    { _id: notificationId, user: userId },
+    { _id: notificationId, user: { $in: userIds } },
     { isRead: true },
     { new: true }
   );
 };
 
 const markAllAsRead = async (userId) => {
+  const userIds = await getUserIds(userId);
   return Notification.updateMany(
-    { user: userId, isRead: false },
+    { user: { $in: userIds }, isRead: false },
     { isRead: true }
   );
 };

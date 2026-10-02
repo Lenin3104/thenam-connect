@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import {
   FileDown, FileSpreadsheet, TrendingUp, PieChart, Activity, Percent,
   Search, Filter, RotateCcw, Calendar, CheckCircle2, Clock, AlertTriangle,
-  Award, Building2, UserCheck, ShieldCheck, Download, Loader2
+  Award, Building2, UserCheck, ShieldCheck, Download, Loader2, Mail
 } from "lucide-react";
+import { SendReportEmailDialog } from "@/components/reports/SendReportEmailDialog";
 import { useState } from "react";
 import {
   useFinanceSummary,
@@ -55,8 +56,20 @@ const reportTypes = [
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-export function ReportsPage() {
-  const { user } = useAuthStore();
+function ReportsPage() {
+  const { user, activeRole } = useAuthStore();
+  const userRoles = [
+    activeRole,
+    user?.role,
+    ...(user?.roles || [])
+  ].filter((r): r is string => Boolean(r)).map((r) => r.toLowerCase());
+
+  const isAdmin = userRoles.some((r: string) =>
+    ["admin", "founder", "super admin", "manager", "ceo"].includes(r)
+  );
+
+  // State for Send Employee Report Email modal
+  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
 
   // Route Protection Check
   if (!canAccessRoute(user?.role, "/reports")) {
@@ -218,6 +231,16 @@ export function ReportsPage() {
           <div className="flex items-center gap-2">
             {activeTab === "task-completion" ? (
               <>
+                {isAdmin && (
+                  <Button
+                    variant="outline"
+                    className="rounded-xl gap-1.5 cursor-pointer text-xs border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/60 font-semibold shadow-xs"
+                    onClick={() => setIsEmailDialogOpen(true)}
+                  >
+                    <Mail className="h-4 w-4 text-primary" />
+                    Email Report
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   className="rounded-xl gap-1.5 cursor-pointer text-xs"
@@ -715,6 +738,12 @@ export function ReportsPage() {
           </SectionCard>
         </div>
       )}
+
+      {/* Send Employee Report Email Dialog */}
+      <SendReportEmailDialog
+        isOpen={isEmailDialogOpen}
+        onClose={() => setIsEmailDialogOpen(false)}
+      />
 
       <Toaster />
     </PageContainer>

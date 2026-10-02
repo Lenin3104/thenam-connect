@@ -436,6 +436,28 @@ export const downloadMyTaskReportExcel = async (params?: Record<string, any>) =>
   window.URL.revokeObjectURL(url);
 };
 
+export interface SendReportEmailPayload {
+  employeeId: string;
+  subject?: string;
+  message?: string;
+  includeTaskSummary?: boolean;
+  includePdf?: boolean;
+  includeExcel?: boolean;
+}
+
+export const useSendEmployeeReportEmail = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: SendReportEmailPayload) => {
+      const res = await api.post('/reports/email', payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+    }
+  });
+};
+
 // --- Setting Hooks ---
 
 export const useSettings = () => {

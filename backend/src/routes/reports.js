@@ -8,5 +8,9 @@ router.use(protect);
 router.get('/my-tasks', reportController.getMyTaskReport);
 router.get('/my-tasks/pdf', reportController.downloadMyTaskReportPDF);
 router.get('/my-tasks/excel', reportController.downloadMyTaskReportExcel);
+router.post('/email', reportController.sendEmployeeReportEmail);
+router.get('/emails/:id', reportController.getReportEmail);
+router.get('/emails/:id/attachment/:type', reportController.downloadReportEmailAttachment);
 
 module.exports = router;
+

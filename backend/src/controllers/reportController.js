@@ -73,8 +73,64 @@ const downloadMyTaskReportExcel = asyncHandler(async (req, res) => {
   return res.end(buffer);
 });
 
+/**
+ * POST /api/reports/email
+ * Admin sends task report to an employee via email
+ */
+const sendEmployeeReportEmail = asyncHandler(async (req, res) => {
+  const { employeeId, subject, message, includeTaskSummary, includePdf, includeExcel } = req.body;
+
+  const result = await reportService.sendEmployeeReportEmail({
+    adminUser: req.user,
+    employeeId,
+    subject,
+    message,
+    includeTaskSummary: includeTaskSummary !== false,
+    includePdf: includePdf !== false,
+    includeExcel: !!includeExcel,
+    req
+  });
+
+  return success(
+    res,
+    result,
+    `Report email sent successfully to ${result.recipientEmail}`
+  );
+});
+
+/**
+ * GET /api/reports/emails/:id
+ * Retrieve sent report email details (restricted to recipient or admin)
+ */
+const getReportEmail = asyncHandler(async (req, res) => {
+  const email = await reportService.getReportEmailById(req.params.id, req.user);
+  return success(res, email, 'Report email retrieved successfully');
+});
+
+/**
+ * GET /api/reports/emails/:id/attachment/:type
+ * Download attachment (pdf or excel) (restricted to recipient or admin)
+ */
+const downloadReportEmailAttachment = asyncHandler(async (req, res) => {
+  const { buffer, filename, contentType } = await reportService.getReportEmailAttachment(
+    req.params.id,
+    req.params.type,
+    req.user
+  );
+
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', buffer.length);
+
+  return res.end(buffer);
+});
+
 module.exports = {
   getMyTaskReport,
   downloadMyTaskReportPDF,
-  downloadMyTaskReportExcel
+  downloadMyTaskReportExcel,
+  sendEmployeeReportEmail,
+  getReportEmail,
+  downloadReportEmailAttachment
 };
+
