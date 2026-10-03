@@ -281,6 +281,19 @@ export const useCreateProject = () => {
   });
 };
 
+export const useProject = (id?: string) => {
+  return useQuery({
+    queryKey: ['project', id],
+    queryFn: async () => {
+      if (!id) return null;
+      const res = await api.get(`/projects/${id}`);
+      return res.data.data;
+    },
+    enabled: !!id,
+    retry: 1
+  });
+};
+
 // --- Task Hooks ---
 
 export const useTasks = (params?: { venture?: string; project?: string; assignedTo?: string }) => {
@@ -290,6 +303,19 @@ export const useTasks = (params?: { venture?: string; project?: string; assigned
       const res = await api.get('/tasks', { params });
       return res.data.data;
     }
+  });
+};
+
+export const useTask = (id?: string) => {
+  return useQuery({
+    queryKey: ['task', id],
+    queryFn: async () => {
+      if (!id) return null;
+      const res = await api.get(`/tasks/${id}`);
+      return res.data.data;
+    },
+    enabled: !!id,
+    retry: 1
   });
 };
 
@@ -307,7 +333,7 @@ export const useCreateTask = () => {
   });
 };
 
-// --- Reward Hooks ---
+// --- Reward & Leaderboard Hooks ---
 
 export const useRewards = (params?: { employee?: string }) => {
   return useQuery({
@@ -317,6 +343,194 @@ export const useRewards = (params?: { employee?: string }) => {
       return res.data.data;
     }
   });
+};
+
+export const useLeaderboard = (params?: { department?: string; search?: string; limit?: number }) => {
+  return useQuery({
+    queryKey: ['leaderboard', params],
+    queryFn: async () => {
+      const res = await api.get('/rewards/leaderboard', { params });
+      return res.data.data;
+    }
+  });
+};
+
+export const useMyRewards = () => {
+  return useQuery({
+    queryKey: ['rewards-me'],
+    queryFn: async () => {
+      const res = await api.get('/rewards/me');
+      return res.data.data;
+    }
+  });
+};
+
+export const useCompleteTask = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ taskId, remarks }: { taskId: string; remarks?: string }) => {
+      const res = await api.patch(`/tasks/${taskId}/complete`, { remarks });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['my-task-report'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards-me'] });
+      queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
+      queryClient.invalidateQueries({ queryKey: ['rewards'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+    }
+  });
+};
+
+// --- Task Completion Report Hooks ---
+
+export const useMyTaskReport = (params?: {
+  search?: string;
+  status?: string;
+  priority?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: string;
+  sortOrder?: string;
+}) => {
+  return useQuery({
+    queryKey: ['my-task-report', params],
+    queryFn: async () => {
+      const res = await api.get('/reports/my-tasks', { params });
+      return res.data.data;
+    }
+  });
+};
+
+export const downloadMyTaskReportPDF = async (params?: Record<string, any>) => {
+  const res = await api.get('/reports/my-tasks/pdf', {
+    params,
+    responseType: 'blob'
+  });
+  const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `Thenam_Task_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+export const downloadMyTaskReportExcel = async (params?: Record<string, any>) => {
+  const res = await api.get('/reports/my-tasks/excel', {
+    params,
+    responseType: 'blob'
+  });
+  const url = window.URL.createObjectURL(
+    new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  );
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `Thenam_Task_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+export interface SendReportEmailPayload {
+  employeeId: string;
+  subject?: string;
+  message?: string;
+  includeTaskSummary?: boolean;
+  includePdf?: boolean;
+  includeExcel?: boolean;
+}
+
+export const useSendEmployeeReportEmail = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: SendReportEmailPayload) => {
+      const res = await api.post('/reports/email', payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    }
+  });
+};
+
+export interface ReportEmailData {
+  _id: string;
+  sender: string;
+  senderName: string;
+  fromEmail: string;
+  recipient: string;
+  recipientEmployee: string;
+  recipientName: string;
+  recipientEmail: string;
+  subject: string;
+  message: string;
+  emailHtml: string;
+  emailText: string;
+  summary?: {
+    totalTasks: number;
+    completedTasks: number;
+    inProgressTasks: number;
+    pendingTasks: number;
+    overdueTasks: number;
+    totalPoints: number;
+  };
+  department: string;
+  hasPdf: boolean;
+  hasExcel: boolean;
+  pdfFilename?: string;
+  pdfSize?: number;
+  excelFilename?: string;
+  excelSize?: number;
+  status: string;
+  sentAt: string;
+  createdAt: string;
+}
+
+export const useReportEmail = (emailId?: string | null) => {
+  return useQuery<ReportEmailData>({
+    queryKey: ['report-email', emailId],
+    queryFn: async () => {
+      if (!emailId) throw new Error('Email ID is required');
+      const url = emailId === 'latest' ? '/reports/emails/latest' : `/reports/emails/${emailId}`;
+      const res = await api.get(url);
+      return res.data.data;
+    },
+    enabled: Boolean(emailId),
+    retry: false
+  });
+};
+
+export const downloadReportEmailAttachment = async (
+  emailId: string,
+  type: 'pdf' | 'excel',
+  fallbackFilename?: string
+) => {
+  const res = await api.get(`/reports/emails/${emailId}/attachment/${type}`, {
+    responseType: 'blob'
+  });
+  const blob = new Blob([res.data], {
+    type:
+      type === 'pdf'
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute(
+    'download',
+    fallbackFilename || `Employee_Report.${type === 'pdf' ? 'pdf' : 'xlsx'}`
+  );
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 // --- Setting Hooks ---
@@ -601,7 +815,16 @@ export const useActiveAnnouncements = () => {
 export const useCreateAnnouncement = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { title: string; content: string; pinned?: boolean }) => {
+    mutationFn: async (payload: {
+      title: string;
+      content: string;
+      message?: string;
+      priority?: string;
+      targetAudience?: string;
+      department?: string;
+      targetUsers?: string[];
+      pinned?: boolean;
+    }) => {
       const res = await api.post('/announcements', payload);
       return res.data.data;
     },

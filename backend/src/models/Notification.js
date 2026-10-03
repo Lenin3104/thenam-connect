@@ -34,6 +34,7 @@ const notificationSchema = new mongoose.Schema(
         'transfer_completed',
         'revert_request',
         'revert_processed',
+        'employee_report_email',
         'general'
       ],
       default: 'general',
@@ -46,7 +47,7 @@ const notificationSchema = new mongoose.Schema(
     },
     entityType: {
       type: String,
-      enum: ['Task', 'Project', 'Transaction', 'Employee', 'Venture', 'Reward', 'Announcement', null],
+      enum: ['Task', 'Project', 'Transaction', 'Employee', 'Venture', 'Reward', 'Announcement', 'ReportEmail', null],
       default: null
     },
     entityId: {

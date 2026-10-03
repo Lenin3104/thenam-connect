@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   TrendingUp,
@@ -10,7 +11,9 @@ import {
   Wallet,
   UserPlus,
   Layers,
-  Clock
+  Clock,
+  Mail,
+  FileText
 } from "lucide-react";
 import { PageContainer, PageHeader } from "@/components/layout/page";
 import { StatCard } from "@/components/ui-ext/stat-card";
@@ -22,6 +25,7 @@ import { useDashboardStats, useDashboardCharts, useRecentActivities, useProjects
 import { useAuthStore } from "@/store/authStore";
 import { canAccessRoute, hasPermission, normalizeRole } from "@/lib/permissions";
 import { RoleGuard } from "@/components/rbac/RoleGuard";
+import { ReportEmailDetailDialog } from "@/components/reports/ReportEmailDetailDialog";
 import {
   AreaChart,
   Area,
@@ -54,6 +58,9 @@ function DashboardPage() {
   const { data: recentActivities, isLoading: isActivitiesLoading } = useRecentActivities();
   const { data: projects, isLoading: isProjectsLoading } = useProjects();
 
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [isEmailDetailOpen, setIsEmailDetailOpen] = useState(false);
+
   const upcoming = projects?.filter((p: any) => p.status === 'Planning') || [];
   const pending = projects?.filter((p: any) => ['In Progress', 'Active', 'Testing', 'On Hold', 'Paused'].includes(p.status)) || [];
   const completed = projects?.filter((p: any) => p.status === 'Completed') || [];
@@ -72,6 +79,17 @@ function DashboardPage() {
     { label: "Record payment", tone: "gradient-gold", path: "/finance", resource: "finance", action: "create" },
   ].filter(a => hasPermission(user?.role, a.resource as any, a.action as any));
 
+  // Check if there is an employee report email activity for this user
+  const latestEmployeeReportActivity = recentActivities?.find((act: any) => {
+    const isReport = act.action === 'Sent Employee Report Email' || (act.action && String(act.action).toLowerCase().includes('report email'));
+    if (!isReport) return false;
+    const targetEmail = (act.newValue?.recipientEmail || '').toLowerCase();
+    const targetName = (act.newValue?.employeeName || act.entityName || '').toLowerCase();
+    const myEmail = (user?.email || '').toLowerCase();
+    const myName = (user?.name || '').toLowerCase();
+    return (targetEmail && targetEmail === myEmail) || (myName && targetName.includes(myName)) || (user?.role === 'employee' || user?.role === 'developer');
+  });
+
   return (
     <PageContainer>
       <PageHeader
@@ -85,6 +103,38 @@ function DashboardPage() {
           </RoleGuard>
         }
       />
+
+      {latestEmployeeReportActivity && (
+        <div className="mb-6 rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-2xl bg-primary/15 flex items-center justify-center text-primary shrink-0 ring-2 ring-primary/20 shadow-xs">
+              <Mail className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-foreground">Employee Report Received from Admin</h4>
+                <Badge className="text-[10px] px-2 py-0.5 bg-primary/20 text-primary border-primary/30">Official Email</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Admin sent your task report and performance metrics. You can view the full email, task breakdown, and download attached reports.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              onClick={() => {
+                setSelectedEmailId(latestEmployeeReportActivity.newValue?.emailId || 'latest');
+                setIsEmailDetailOpen(true);
+              }}
+              className="rounded-xl gradient-brand text-white shadow-sm hover:opacity-95 gap-1.5 cursor-pointer font-medium text-xs px-3.5 h-8"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              <span>Open Email Sent by Admin</span>
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -487,39 +537,82 @@ function DashboardPage() {
                 <div className="py-8 text-center text-xs text-muted-foreground">No recent activities.</div>
               ) : (
                 <ul className="-mb-8">
-                  {recentActivities.map((act: any, actIdx: number) => (
-                    <li key={act._id}>
-                      <div className="relative pb-8">
-                        {actIdx !== recentActivities.length - 1 ? (
-                          <span className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-border/30" aria-hidden="true" />
-                        ) : null}
-                        <div className="relative flex space-x-3">
-                          <div>
-                            <span className="h-8 w-8 rounded-full bg-muted flex items-center justify-center ring-4 ring-slate-900 text-xs font-semibold text-muted-foreground">
-                              {act.userName?.charAt(0) || act.user?.name?.charAt(0) || 'A'}
-                            </span>
-                          </div>
-                          <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                  {recentActivities.map((act: any, actIdx: number) => {
+                    const isReportEmail =
+                      act.action === 'Sent Employee Report Email' ||
+                      (act.action && String(act.action).toLowerCase().includes('report email')) ||
+                      (act.entity === 'Report' && act.newValue?.emailId) ||
+                      Boolean(act.newValue?.emailId);
+
+                    return (
+                      <li key={act._id}>
+                        <div className="relative pb-8">
+                          {actIdx !== recentActivities.length - 1 ? (
+                            <span className="absolute left-4 top-4 -ml-px h-full w-0.5 bg-border/30" aria-hidden="true" />
+                          ) : null}
+                          <div className="relative flex space-x-3">
                             <div>
-                              <p className="text-xs text-foreground">
-                                <span className="font-semibold text-muted-foreground">{act.userName || act.user?.name || "System"}</span>{" "}
-                                {act.action} <span className="font-semibold text-primary">{act.entityName || act.entity}</span>
-                              </p>
+                              <span className="h-8 w-8 rounded-full bg-muted flex items-center justify-center ring-4 ring-slate-900 text-xs font-semibold text-muted-foreground">
+                                {act.userName?.charAt(0) || act.user?.name?.charAt(0) || 'A'}
+                              </span>
                             </div>
-                            <div className="whitespace-nowrap text-right text-[10px] text-muted-foreground">
-                              {new Date(act.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            <div className="flex min-w-0 flex-1 justify-between space-x-4 pt-1.5">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs text-foreground">
+                                  <span className="font-semibold text-muted-foreground">{act.userName || act.user?.name || "System"}</span>{" "}
+                                  {act.action} <span className="font-semibold text-primary">{act.entityName || act.entity}</span>
+                                </p>
+                                {isReportEmail && (
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        setSelectedEmailId(act.newValue?.emailId || 'latest');
+                                        setIsEmailDetailOpen(true);
+                                      }}
+                                      className="h-7 px-2.5 text-xs rounded-lg gap-1.5 border-primary/30 text-primary bg-primary/5 hover:bg-primary/10 hover:border-primary/50 cursor-pointer font-medium shadow-xs transition-all"
+                                    >
+                                      <Mail className="h-3.5 w-3.5 text-primary" />
+                                      <span>Open Email Sent by Admin</span>
+                                    </Button>
+                                    {act.newValue?.pdfAttached && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-rose-500/10 text-rose-500 border-rose-500/20 font-medium">
+                                        PDF Attached
+                                      </Badge>
+                                    )}
+                                    {act.newValue?.excelAttached && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 bg-emerald-500/10 text-emerald-500 border-emerald-500/20 font-medium">
+                                        Excel Attached
+                                      </Badge>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="whitespace-nowrap text-right text-[10px] text-muted-foreground">
+                                {new Date(act.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    </li>
-                  ))}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
           </SectionCard>
         </div>
       </div>
+
+      <ReportEmailDetailDialog
+        emailId={selectedEmailId}
+        isOpen={isEmailDetailOpen}
+        onClose={() => {
+          setIsEmailDetailOpen(false);
+          setSelectedEmailId(null);
+        }}
+      />
     </PageContainer>
   );
 }

@@ -148,12 +148,47 @@ const taskSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: null
+    },
+
+    // ── Reward & Report Fields ───────────────────────────────────────────────
+    rewardPointAwarded: {
+      type: Boolean,
+      default: false,
+      index: true
+    },
+    completionRemarks: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    completionDuration: {
+      type: String,
+      default: ''
     }
   },
   {
-    timestamps: true
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
   }
 );
+
+// Virtual aliases to align with prompt naming conventions
+taskSchema.virtual('taskName').get(function () {
+  return this.title;
+});
+taskSchema.virtual('dueDate').get(function () {
+  return this.deadline;
+});
+taskSchema.virtual('assignedDate').get(function () {
+  return this.createdAt;
+});
+taskSchema.virtual('employeeId').get(function () {
+  return this.assignedTo;
+});
+taskSchema.virtual('pointsEarned').get(function () {
+  return this.rewardPointAwarded || this.status === 'Completed' ? 1 : 0;
+});
 
 // Compound indexes
 taskSchema.index({ project: 1, status: 1 });

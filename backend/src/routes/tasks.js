@@ -13,6 +13,11 @@ router.route('/:id/status')
     .patch(canAccess('tasks', 'update'), taskController.updateTaskStatus)
     .put(canAccess('tasks', 'update'), taskController.updateTaskStatus);
 
+// ── Complete Task (Automatic +1 point, duplicate protected) ───────────────────
+router.route('/:id/complete')
+    .patch(taskController.completeTask)
+    .post(taskController.completeTask);
+
 // ── Approval workflow endpoints ───────────────────────────────────────────────
 // Any authenticated user with task:update can submit (service enforces non-admin)
 router.post('/:id/submit-completion', canAccess('tasks', 'update'), taskController.submitCompletion);

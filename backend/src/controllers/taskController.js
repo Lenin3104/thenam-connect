@@ -68,6 +68,15 @@ const denyCompletion = asyncHandler(async (req, res) => {
     return success(res, task, 'Task completion denied');
 });
 
+/**
+ * Employee completes task directly:
+ * PATCH /api/tasks/:id/complete
+ */
+const completeTask = asyncHandler(async (req, res) => {
+    const result = await taskService.completeTask(req.params.id, req.user, req.body.remarks || req.body.completionRemarks);
+    return success(res, result, result.message);
+});
+
 module.exports = {
     createTask,
     getTasks,
@@ -77,5 +86,6 @@ module.exports = {
     deleteTask,
     submitCompletion,
     approveCompletion,
-    denyCompletion
+    denyCompletion,
+    completeTask
 };

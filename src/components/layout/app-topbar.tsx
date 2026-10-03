@@ -11,13 +11,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bell, MessageSquare, Menu, Plus, Search, Sun, Moon, Calendar, LogOut, User, Shield, Briefcase, CheckCircle2 } from "lucide-react";
+import { Bell, MessageSquare, Menu, Plus, Search, Sun, Moon, Calendar, LogOut, User, Shield, Briefcase, CheckCircle2, Sparkles, FileText, Mail } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme } from "@/contexts/theme-context";
 import { AppSidebar } from "./app-sidebar";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useAuthStore } from "@/store/authStore";
 import { useVentures, useProjects, useEmployees, useTasks, useNotifications, useMarkNotificationRead } from "@/lib/api-hooks";
 import { hasPermission, canAccessRoute, normalizeRole } from "@/lib/permissions";
+import { AiChatbot } from "@/components/ai/AiChatbot";
 
 export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const { theme, toggle } = useTheme();
@@ -34,6 +36,7 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
   const [today, setToday] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [aiChatOpen, setAiChatOpen] = useState(false);
 
   const { data: ventures } = useVentures();
   const { data: projects } = useProjects();
@@ -171,7 +174,52 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
           )}
         </div>
 
+        {/* ✨ Ask Thenam AI Button — immediately next to the search bar */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAiChatOpen((prev) => !prev)}
+                className={`hidden md:inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border font-semibold text-xs transition-all cursor-pointer shadow-xs ${
+                  aiChatOpen
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary hover:border-primary/40"
+                }`}
+                aria-label="Ask Thenam AI"
+              >
+                <Sparkles className={`h-3.5 w-3.5 ${aiChatOpen ? "text-primary-foreground" : "text-primary animate-pulse"}`} />
+                <span className="hidden xl:inline">{aiChatOpen ? "✕ Close AI" : "✨ Ask Thenam AI"}</span>
+                <span className="inline xl:hidden">{aiChatOpen ? "✕ AI" : "✨ AI"}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Ask Thenam AI</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
         <div className="ml-auto flex items-center gap-1.5">
+          {/* Mobile AI Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setAiChatOpen((prev) => !prev)}
+                  className={`md:hidden h-9 w-9 rounded-xl border cursor-pointer ${
+                    aiChatOpen
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-primary/5 text-primary border-primary/20 hover:bg-primary/10"
+                  }`}
+                  aria-label="Ask Thenam AI"
+                >
+                  <Sparkles className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Ask Thenam AI</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <div className="hidden xl:flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
             <Calendar className="h-3.5 w-3.5" /> {today}
           </div>
@@ -233,14 +281,41 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
 
               <div className="max-h-80 overflow-y-auto space-y-1 py-1">
                 {!notifications || notifications.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">No notifications available</p>
+                  <p className="text-xs text-muted-foreground text-center py-6">No new notifications</p>
                 ) : (
                   notifications.slice(0, 10).map((n: any) => (
                     <div
                       key={n._id}
                       onClick={() => {
                         if (!n.isRead) markAsReadMutation.mutate(n._id);
-                        navigate({ to: "/communication" });
+                        if (
+                          n.type === "employee_report_email" ||
+                          n.entityType === "ReportEmail" ||
+                          n.metadata?.emailId
+                        ) {
+                          const targetEmailId = n.metadata?.emailId || n.entityId;
+                          if (targetEmailId) {
+                            navigate({ to: "/reports", search: { emailId: targetEmailId } as any });
+                          } else {
+                            navigate({ to: "/reports" as any });
+                          }
+                        } else if (n.actionUrl) {
+                          if (n.actionUrl.startsWith("/")) {
+                            const [path, qs] = n.actionUrl.split("?");
+                            const searchObj: Record<string, string> = {};
+                            if (qs) {
+                              const params = new URLSearchParams(qs);
+                              params.forEach((v, k) => {
+                                searchObj[k] = v;
+                              });
+                            }
+                            navigate({ to: path as any, search: searchObj as any });
+                          } else {
+                            window.location.href = n.actionUrl;
+                          }
+                        } else {
+                          navigate({ to: "/communication" });
+                        }
                       }}
                       className={`p-2.5 rounded-xl cursor-pointer text-xs transition border flex items-start gap-2.5 ${
                         !n.isRead
@@ -249,7 +324,11 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
                       }`}
                     >
                       <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${!n.isRead ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
-                        <Bell className="h-3.5 w-3.5" />
+                        {n.type === "employee_report_email" || n.entityType === "ReportEmail" ? (
+                          <FileText className="h-3.5 w-3.5 text-blue-500" />
+                        ) : (
+                          <Bell className="h-3.5 w-3.5" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-foreground text-xs line-clamp-1">{n.title}</p>
@@ -328,6 +407,9 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Floating AI Chatbot Assistant */}
+      <AiChatbot isOpen={aiChatOpen} onClose={() => setAiChatOpen(false)} />
     </header>
   );
 }

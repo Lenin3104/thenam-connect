@@ -139,6 +139,10 @@ function CommunicationPage() {
   const [announcementModalOpen, setAnnouncementModalOpen] = useState(false);
   const [annTitle, setAnnTitle] = useState("");
   const [annContent, setAnnContent] = useState("");
+  const [annPriority, setAnnPriority] = useState<"Normal" | "Important" | "Urgent">("Normal");
+  const [annTargetAudience, setAnnTargetAudience] = useState<"Everyone" | "Department" | "Selected Employees">("Everyone");
+  const [annDepartment, setAnnDepartment] = useState("");
+  const [annTargetUsers, setAnnTargetUsers] = useState<string[]>([]);
   const [annPinned, setAnnPinned] = useState(false);
 
   // ── Google Drive modal ────────────────────────────────────────────────────
@@ -252,19 +256,35 @@ function CommunicationPage() {
 
     const handleDmNew = (data: any) => {
       const currentChat = activeChatRef.current;
-      if (currentChat.type === "dm" && data._conversationUserId === currentChat.recipientUserId) {
+      if (currentChat.type === "dm" && (data._conversationUserId === currentChat.recipientUserId || data.senderId?._id === currentChat.recipientUserId)) {
         queryClient.invalidateQueries({ queryKey: ["direct-messages", currentChat.recipientUserId] });
       }
-      // Always refresh direct-users list to update last message preview
+      // Always refresh direct-users list to update last message preview and unread count
       queryClient.invalidateQueries({ queryKey: ["direct-users"] });
+    };
+
+    const handleAnnouncementNew = () => {
+      queryClient.invalidateQueries({ queryKey: ["announcements"] });
+      queryClient.invalidateQueries({ queryKey: ["announcements-active"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
+
+    const handleNotificationNew = () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
     };
 
     socket.on("message:new", handleMessageNew);
     socket.on("dm:new", handleDmNew);
+    socket.on("announcement:new", handleAnnouncementNew);
+    socket.on("notification:new", handleNotificationNew);
+    socket.on("task:assigned", handleNotificationNew);
 
     return () => {
       socket.off("message:new", handleMessageNew);
       socket.off("dm:new", handleDmNew);
+      socket.off("announcement:new", handleAnnouncementNew);
+      socket.off("notification:new", handleNotificationNew);
+      socket.off("task:assigned", handleNotificationNew);
     };
   }, [queryClient]);
 
@@ -564,16 +584,42 @@ function CommunicationPage() {
   const handleCreateAnnouncement = (e: React.FormEvent) => {
     e.preventDefault();
     if (!annTitle.trim() || !annContent.trim()) {
-      toast.error("Title and content are required.");
+      toast.error("Announcement title and message are required.");
       return;
     }
+    if (annTargetAudience === "Department" && !annDepartment.trim()) {
+      toast.error("Please enter target department.");
+      return;
+    }
+    if (annTargetAudience === "Selected Employees" && annTargetUsers.length === 0) {
+      toast.error("Please select at least one employee.");
+      return;
+    }
+
     createAnnouncement.mutate(
-      { title: annTitle, content: annContent, pinned: annPinned },
+      {
+        title: annTitle.trim(),
+        content: annContent.trim(),
+        message: annContent.trim(),
+        priority: annPriority,
+        targetAudience: annTargetAudience,
+        department: annDepartment.trim(),
+        targetUsers: annTargetUsers,
+        pinned: annPinned,
+      },
       {
         onSuccess: () => {
-          toast.success("Announcement published!");
+          toast.success("Announcement published successfully!");
           setAnnouncementModalOpen(false);
-          setAnnTitle(""); setAnnContent(""); setAnnPinned(false);
+          setAnnTitle("");
+          setAnnContent("");
+          setAnnPriority("Normal");
+          setAnnTargetAudience("Everyone");
+          setAnnDepartment("");
+          setAnnTargetUsers([]);
+          setAnnPinned(false);
+          queryClient.invalidateQueries({ queryKey: ["announcements"] });
+          queryClient.invalidateQueries({ queryKey: ["announcements-active"] });
         },
         onError: (err: any) =>
           toast.error(err.response?.data?.message || "Failed to post announcement."),
@@ -1273,20 +1319,35 @@ function CommunicationPage() {
                 {announcements.map((ann: any) => (
                   <div
                     key={ann._id}
-                    className="p-3 rounded-xl bg-card border border-border space-y-2 relative group shadow-sm"
+                    className="p-3 rounded-xl bg-card border border-border space-y-2 relative group shadow-sm hover:border-emerald-500/30 transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {ann.pinned && (
-                            <Pin className="h-3 w-3 text-amber-500 fill-amber-500" />
+                            <Pin className="h-3 w-3 text-amber-500 fill-amber-500 shrink-0" />
                           )}
                           <h4 className="text-xs font-semibold text-foreground leading-snug">
                             {ann.title}
                           </h4>
+                          {ann.priority === "Urgent" && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/15 text-rose-500 font-bold border border-rose-500/20">
+                              Urgent
+                            </span>
+                          )}
+                          {ann.priority === "Important" && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-500 font-bold border border-amber-500/20">
+                              Important
+                            </span>
+                          )}
+                          {ann.targetAudience && ann.targetAudience !== "Everyone" && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-500 font-medium">
+                              {ann.department || ann.targetAudience}
+                            </span>
+                          )}
                         </div>
                         <p className="text-[10px] text-muted-foreground">
-                          By {ann.author?.name || "Leadership"} ·{" "}
+                          By {ann.author?.name || ann.createdByName || "Leadership"} ·{" "}
                           {new Date(ann.createdAt).toLocaleDateString(undefined, {
                             month: "short",
                             day: "numeric",
@@ -1297,7 +1358,7 @@ function CommunicationPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                           onClick={() => handleDeleteAnnouncement(ann._id)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1305,7 +1366,7 @@ function CommunicationPage() {
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                      {ann.content}
+                      {ann.content || ann.message}
                     </p>
                   </div>
                 ))}
@@ -1324,29 +1385,32 @@ function CommunicationPage() {
                 <span>No new notifications</span>
               </div>
             ) : (
-              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                 {notifications.map((n: any) => (
                   <div
                     key={n._id}
-                    className="p-2.5 rounded-xl bg-card border border-border text-xs flex items-center justify-between gap-2"
+                    onClick={() => {
+                      if (!n.isRead) markNotifRead.mutate(n._id);
+                      if (n.actionUrl) {
+                        window.location.href = n.actionUrl;
+                      }
+                    }}
+                    className={`p-2.5 rounded-xl bg-card border text-xs flex items-center justify-between gap-2.5 cursor-pointer transition-all ${
+                      !n.isRead
+                        ? "border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10"
+                        : "border-border hover:bg-muted/50 text-muted-foreground"
+                    }`}
                   >
-                    <div>
-                      <p className="font-semibold text-foreground text-[11px]">
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-[11px] leading-snug truncate ${!n.isRead ? "font-bold text-foreground" : "font-medium"}`}>
                         {n.title}
                       </p>
-                      <p className="text-muted-foreground text-[10px] leading-tight">
+                      <p className="text-[10px] text-muted-foreground leading-tight line-clamp-2 mt-0.5">
                         {n.message}
                       </p>
                     </div>
                     {!n.isRead && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-[10px] text-emerald-600 h-6 px-2 shrink-0"
-                        onClick={() => markNotifRead.mutate(n._id)}
-                      >
-                        Read
-                      </Button>
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0 shadow-sm" />
                     )}
                   </div>
                 ))}
@@ -1442,41 +1506,160 @@ function CommunicationPage() {
 
       {/* ── Announcement Modal ── */}
       <Dialog open={announcementModalOpen} onOpenChange={setAnnouncementModalOpen}>
-        <DialogContent className="sm:max-w-[480px] rounded-2xl">
+        <DialogContent className="sm:max-w-[520px] rounded-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
-              <ShieldCheck className="h-5 w-5 text-emerald-500" />
-              Broadcast Announcement
+              <Megaphone className="h-5 w-5 text-emerald-500" />
+              Broadcast Leadership Announcement
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreateAnnouncement} className="space-y-4 pt-2">
             <div>
               <label htmlFor="annTitle" className="text-xs font-semibold text-foreground">
-                Title
+                Announcement Title *
               </label>
               <Input
                 id="annTitle"
                 value={annTitle}
                 onChange={(e) => setAnnTitle(e.target.value)}
                 placeholder="e.g. Q3 Company Meeting & Product Roadmap"
-                className="mt-1 rounded-xl h-10 border-border"
+                className="mt-1 rounded-xl h-10 border-border text-xs"
                 required
               />
             </div>
+
             <div>
               <label htmlFor="annContent" className="text-xs font-semibold text-foreground">
-                Message
+                Announcement Message *
               </label>
               <Textarea
                 id="annContent"
                 value={annContent}
                 onChange={(e) => setAnnContent(e.target.value)}
-                placeholder="Write the announcement details…"
+                placeholder="Write the full announcement details and instructions…"
                 rows={4}
                 className="mt-1 rounded-xl text-xs border-border"
                 required
               />
             </div>
+
+            {/* Priority Selection */}
+            <div>
+              <label className="text-xs font-semibold text-foreground block mb-1.5">
+                Priority Level
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["Normal", "Important", "Urgent"] as const).map((p) => {
+                  const isSelected = annPriority === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setAnnPriority(p)}
+                      className={`h-9 rounded-xl text-xs font-medium border transition-all flex items-center justify-center gap-1.5 ${
+                        isSelected
+                          ? p === "Urgent"
+                            ? "bg-rose-500/15 border-rose-500 text-rose-500 font-bold"
+                            : p === "Important"
+                            ? "bg-amber-500/15 border-amber-500 text-amber-500 font-bold"
+                            : "bg-emerald-500/15 border-emerald-500 text-emerald-600 font-bold"
+                          : "border-border bg-card/60 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      <span className={`h-2 w-2 rounded-full ${
+                        p === "Urgent" ? "bg-rose-500" : p === "Important" ? "bg-amber-500" : "bg-emerald-500"
+                      }`} />
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Target Audience */}
+            <div>
+              <label className="text-xs font-semibold text-foreground block mb-1.5">
+                Target Audience
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["Everyone", "Department", "Selected Employees"] as const).map((aud) => {
+                  const isSelected = annTargetAudience === aud;
+                  return (
+                    <button
+                      key={aud}
+                      type="button"
+                      onClick={() => setAnnTargetAudience(aud)}
+                      className={`h-9 px-2 rounded-xl text-xs font-medium border transition-all text-center truncate ${
+                        isSelected
+                          ? "bg-emerald-500/15 border-emerald-500 text-emerald-600 font-bold"
+                          : "border-border bg-card/60 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {aud}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* If Department selected */}
+            {annTargetAudience === "Department" && (
+              <div>
+                <label htmlFor="annDept" className="text-xs font-semibold text-foreground">
+                  Department Name *
+                </label>
+                <Input
+                  id="annDept"
+                  value={annDepartment}
+                  onChange={(e) => setAnnDepartment(e.target.value)}
+                  placeholder="e.g. Engineering, Design, Finance, HR"
+                  className="mt-1 rounded-xl h-9 border-border text-xs"
+                  required
+                />
+              </div>
+            )}
+
+            {/* If Selected Employees selected */}
+            {annTargetAudience === "Selected Employees" && (
+              <div>
+                <label className="text-xs font-semibold text-foreground block mb-1">
+                  Select Employees * ({annTargetUsers.length} selected)
+                </label>
+                <div className="max-h-36 overflow-y-auto border border-border rounded-xl p-2 space-y-1 bg-card/50">
+                  {directUsers && directUsers.length > 0 ? (
+                    directUsers.map((u: any) => {
+                      const isChecked = annTargetUsers.includes(u._id);
+                      return (
+                        <label
+                          key={u._id}
+                          className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-muted text-xs cursor-pointer select-none"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setAnnTargetUsers((prev) => [...prev, u._id]);
+                              } else {
+                                setAnnTargetUsers((prev) => prev.filter((id) => id !== u._id));
+                              }
+                            }}
+                            className="rounded border-border text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
+                          />
+                          <span className="font-medium text-foreground">{u.name}</span>
+                          <span className="text-[10px] text-muted-foreground ml-auto">
+                            {u.department || u.role || ""}
+                          </span>
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <p className="text-xs text-muted-foreground py-2 text-center">No employees available</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center gap-2 pt-1">
               <input
                 type="checkbox"
@@ -1492,6 +1675,7 @@ function CommunicationPage() {
                 Pin to top of Announcements
               </label>
             </div>
+
             <DialogFooter className="pt-3">
               <Button
                 type="button"
@@ -1509,7 +1693,8 @@ function CommunicationPage() {
                   background: "linear-gradient(135deg,#059669 0%,#065f46 100%)",
                 }}
               >
-                <Megaphone className="h-3.5 w-3.5" /> Publish Announcement
+                <Megaphone className="h-3.5 w-3.5" />
+                {createAnnouncement.isPending ? "Publishing..." : "Publish Announcement"}
               </Button>
             </DialogFooter>
           </form>

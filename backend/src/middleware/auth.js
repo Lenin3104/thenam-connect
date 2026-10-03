@@ -32,7 +32,14 @@ const protect = async (req, res, next) => {
       
       const headerRole = req.headers['x-active-role'];
       const normalizedHeaderRole = headerRole ? normalizeRole(headerRole) : null;
-      let primaryRole = user.roles && user.roles.length > 0 ? user.roles[0] : (user.role || 'employee');
+      let primaryRole = (user.roles && user.roles.length > 0) ? user.roles[0] : (user.role || '');
+      if (!primaryRole || primaryRole === 'employee' || primaryRole === 'developer') {
+        const emp = await Employee.findOne({ email: (user.email || '').toLowerCase() });
+        if (emp && emp.role) {
+          primaryRole = emp.role;
+        }
+      }
+      if (!primaryRole) primaryRole = user.role || 'developer';
       
       if (normalizedHeaderRole && user.roles && user.roles.map(r => normalizeRole(r)).includes(normalizedHeaderRole)) {
         primaryRole = normalizedHeaderRole;
@@ -42,6 +49,7 @@ const protect = async (req, res, next) => {
       
       // Attach the active/resolved role onto req.user so downstream services can access it
       req.user.userRole = req.userRole;
+      req.user.role = req.userRole;
 
       return next();
     } catch (error) {
