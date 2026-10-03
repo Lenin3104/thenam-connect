@@ -28,7 +28,7 @@ const PERMISSIONS = {
     tasks: ['create', 'read', 'update', 'delete'],
     settings: ['create', 'read', 'update', 'delete'],
     user_management: ['create', 'read', 'update', 'delete'],
-    reports: ['create', 'read', 'update', 'delete'],
+    reports: ['create', 'read', 'update', 'delete', 'send', 'email', 'send_email'],
     company_settings: ['create', 'read', 'update', 'delete'],
     workspace_links: ['create', 'read', 'update', 'delete', 'share']
   },
@@ -40,7 +40,7 @@ const PERMISSIONS = {
     tasks: ['create', 'read', 'update', 'delete'],
     settings: ['read', 'update'],
     user_management: ['create', 'read', 'update', 'delete'],
-    reports: ['create', 'read', 'update', 'delete'],
+    reports: ['create', 'read', 'update', 'delete', 'send', 'email', 'send_email'],
     company_settings: ['read', 'update'],
     workspace_links: ['create', 'read', 'update', 'delete', 'share']
   },

@@ -11,7 +11,7 @@ const { resolveEmployee } = require('../utils/resolveEmployee');
 const emailService = require('./emailService');
 const notificationService = require('./notificationService');
 const { logActivity } = require('./activityService');
-const { normalizeRole } = require('../config/rbac');
+const { normalizeRole, checkPermission } = require('../config/rbac');
 
 /**
  * Helper to compute human-readable duration between two dates
@@ -440,9 +440,42 @@ const sendEmployeeReportEmail = async ({
   includeExcel = false,
   req = null
 }) => {
-  // 1. Role verification
-  const role = normalizeRole(adminUser.userRole || adminUser.role);
-  const isAuthorized = ['admin', 'founder', 'manager', 'super admin', 'ceo'].includes(role);
+  // 1. Role & Permission verification
+  const candidateRoles = [];
+  if (req && req.userRole) candidateRoles.push(normalizeRole(req.userRole));
+  if (adminUser.userRole) candidateRoles.push(normalizeRole(adminUser.userRole));
+  if (adminUser.role) candidateRoles.push(normalizeRole(adminUser.role));
+  if (Array.isArray(adminUser.roles)) {
+    adminUser.roles.forEach((r) => candidateRoles.push(normalizeRole(r)));
+  }
+  if (Array.isArray(adminUser.systemRoles)) {
+    adminUser.systemRoles.forEach((r) => candidateRoles.push(normalizeRole(r)));
+  }
+
+  const uniqueRoles = [...new Set(candidateRoles.filter(Boolean))];
+
+  const privilegedRoles = ['admin', 'founder', 'manager', 'super admin', 'ceo'];
+  const hasPrivilegedRole = uniqueRoles.some((r) => privilegedRoles.includes(r));
+  const hasRbacPermission = uniqueRoles.some(
+    (r) =>
+      checkPermission(r, 'reports', 'create') ||
+      checkPermission(r, 'reports', 'send') ||
+      checkPermission(r, 'reports', 'email') ||
+      checkPermission(r, 'reports', 'send_email')
+  );
+
+  const isAuthorized = hasPrivilegedRole && hasRbacPermission;
+
+  // Safe debug logging (no sensitive credentials or secrets)
+  console.log('[REPORT EMAIL AUTH]', {
+    userId: String(adminUser._id || adminUser.id),
+    roles: uniqueRoles,
+    requiredPermission: 'reports:send_email',
+    hasPrivilegedRole,
+    hasRbacPermission,
+    authorized: isAuthorized
+  });
+
   if (!isAuthorized) {
     throw new AppError('You do not have permission to send employee reports.', 403);
   }

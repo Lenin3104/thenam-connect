@@ -49,6 +49,7 @@ const protect = async (req, res, next) => {
       
       // Attach the active/resolved role onto req.user so downstream services can access it
       req.user.userRole = req.userRole;
+      req.user.role = req.userRole;
 
       return next();
     } catch (error) {

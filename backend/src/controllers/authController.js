@@ -231,11 +231,15 @@ const firebaseLogin = async (req, res, next) => {
 
     const token = generateToken(account._id);
 
+    const resolvedFirebaseRole = account.role || (account.roles && account.roles.length > 0 ? account.roles[0] : 'Employee');
+    const resolvedFirebaseRoles = account.roles && account.roles.length > 0 ? account.roles : [resolvedFirebaseRole];
+
     const userPayload = {
       id: account._id,
       name: account.name,
       email: account.email,
-      role: account.role || 'Employee',
+      role: resolvedFirebaseRole,
+      roles: resolvedFirebaseRoles,
       avatar: account.avatar || account.photo,
       firebaseUid: account.firebaseUid || firebaseUid,
       employeeId: employee?.employeeId || account.employeeId,
