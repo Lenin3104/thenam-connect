@@ -43,11 +43,12 @@ export const ReportEmailDetailDialog: React.FC<ReportEmailDetailDialogProps> = (
   const [downloadingExcel, setDownloadingExcel] = useState(false);
 
   const handleDownloadPdf = async () => {
-    if (!emailId) return;
+    const targetId = email?._id || emailId;
+    if (!targetId) return;
     try {
       setDownloadingPdf(true);
       await downloadReportEmailAttachment(
-        emailId,
+        targetId,
         "pdf",
         email?.pdfFilename || `Thenam_Employee_Report_${email?.recipientName?.replace(/[^a-zA-Z0-9_-]/g, "_") || "Employee"}.pdf`
       );
@@ -61,11 +62,12 @@ export const ReportEmailDetailDialog: React.FC<ReportEmailDetailDialogProps> = (
   };
 
   const handleDownloadExcel = async () => {
-    if (!emailId) return;
+    const targetId = email?._id || emailId;
+    if (!targetId) return;
     try {
       setDownloadingExcel(true);
       await downloadReportEmailAttachment(
-        emailId,
+        targetId,
         "excel",
         email?.excelFilename || `Thenam_Employee_Report_${email?.recipientName?.replace(/[^a-zA-Z0-9_-]/g, "_") || "Employee"}.xlsx`
       );

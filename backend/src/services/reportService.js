@@ -735,10 +735,18 @@ const getReportEmailById = async (emailId, user) => {
   const isAdmin = ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(userRole) ||
     userRoles.some((r) => ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(r));
 
+  let employeeId = null;
+  try {
+    const { resolveEmployee } = require('../utils/resolveEmployee');
+    const emp = await resolveEmployee(user);
+    if (emp && emp._id) employeeId = String(emp._id);
+  } catch (e) {}
+
   const isRecipient =
     (reportEmail.recipient && String(reportEmail.recipient) === userId) ||
     (reportEmail.recipientEmployee && String(reportEmail.recipientEmployee) === userId) ||
-    (user.email && user.email.toLowerCase() === reportEmail.recipientEmail.toLowerCase());
+    (employeeId && reportEmail.recipientEmployee && String(reportEmail.recipientEmployee) === employeeId) ||
+    (user.email && reportEmail.recipientEmail && user.email.toLowerCase() === reportEmail.recipientEmail.toLowerCase());
 
   if (!isAdmin && !isRecipient) {
     throw new AppError("You don't have permission to view this email.", 403);
@@ -791,10 +799,18 @@ const getReportEmailAttachment = async (emailId, type, user) => {
   const isAdmin = ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(userRole) ||
     userRoles.some((r) => ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(r));
 
+  let employeeId = null;
+  try {
+    const { resolveEmployee } = require('../utils/resolveEmployee');
+    const emp = await resolveEmployee(user);
+    if (emp && emp._id) employeeId = String(emp._id);
+  } catch (e) {}
+
   const isRecipient =
     (reportEmail.recipient && String(reportEmail.recipient) === userId) ||
     (reportEmail.recipientEmployee && String(reportEmail.recipientEmployee) === userId) ||
-    (user.email && user.email.toLowerCase() === reportEmail.recipientEmail.toLowerCase());
+    (employeeId && reportEmail.recipientEmployee && String(reportEmail.recipientEmployee) === employeeId) ||
+    (user.email && reportEmail.recipientEmail && user.email.toLowerCase() === reportEmail.recipientEmail.toLowerCase());
 
   if (!isAdmin && !isRecipient) {
     throw new AppError("You don't have permission to view this email.", 403);
@@ -825,12 +841,76 @@ const getReportEmailAttachment = async (emailId, type, user) => {
   throw new AppError('Invalid attachment type requested.', 400);
 };
 
+/**
+ * Retrieve the latest sent report email for the authenticated user or specified employee
+ */
+const getLatestReportEmailForUser = async (user, employeeId = null) => {
+  const userId = String(user._id || user.id);
+  const userRole = normalizeRole(user.userRole || user.role);
+  const userRoles = (user.roles || []).map((r) => normalizeRole(r));
+  const isAdmin = ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(userRole) ||
+    userRoles.some((r) => ['admin', 'founder', 'super admin', 'manager', 'ceo'].includes(r));
+
+  const filter = {};
+  if (employeeId && isAdmin) {
+    filter.$or = [
+      { recipientEmployee: employeeId },
+      { recipient: employeeId }
+    ];
+  } else if (!isAdmin) {
+    const userIds = [user._id || user.id];
+    try {
+      const { resolveEmployee } = require('../utils/resolveEmployee');
+      const emp = await resolveEmployee(user);
+      if (emp && emp._id) userIds.push(emp._id);
+    } catch (e) {}
+
+    filter.$or = [
+      { recipient: { $in: userIds } },
+      { recipientEmployee: { $in: userIds } },
+      { recipientEmail: (user.email || '').toLowerCase() }
+    ];
+  }
+
+  const latest = await ReportEmail.findOne(filter).sort({ createdAt: -1 }).lean();
+  if (!latest) {
+    throw new AppError('No report emails found.', 404);
+  }
+
+  return {
+    _id: latest._id,
+    sender: latest.sender,
+    senderName: latest.senderName,
+    fromEmail: latest.fromEmail || 'admin@thenamsoftwaresolutions.com',
+    recipient: latest.recipient,
+    recipientEmployee: latest.recipientEmployee,
+    recipientName: latest.recipientName,
+    recipientEmail: latest.recipientEmail,
+    subject: latest.subject,
+    message: latest.message,
+    emailHtml: latest.emailHtml,
+    emailText: latest.emailText,
+    summary: latest.summary,
+    department: latest.department,
+    hasPdf: latest.hasPdf,
+    hasExcel: latest.hasExcel,
+    pdfFilename: latest.pdfAttachment?.filename || null,
+    pdfSize: latest.pdfAttachment?.size || 0,
+    excelFilename: latest.excelAttachment?.filename || null,
+    excelSize: latest.excelAttachment?.size || 0,
+    status: latest.status,
+    sentAt: latest.sentAt,
+    createdAt: latest.createdAt
+  };
+};
+
 module.exports = {
   getMyTaskReport,
   generateMyTaskReportPDF,
   generateMyTaskReportExcel,
   sendEmployeeReportEmail,
   getReportEmailById,
-  getReportEmailAttachment
+  getReportEmailAttachment,
+  getLatestReportEmailForUser
 };
 

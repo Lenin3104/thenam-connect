@@ -497,7 +497,8 @@ export const useReportEmail = (emailId?: string | null) => {
     queryKey: ['report-email', emailId],
     queryFn: async () => {
       if (!emailId) throw new Error('Email ID is required');
-      const res = await api.get(`/reports/emails/${emailId}`);
+      const url = emailId === 'latest' ? '/reports/emails/latest' : `/reports/emails/${emailId}`;
+      const res = await api.get(url);
       return res.data.data;
     },
     enabled: Boolean(emailId),

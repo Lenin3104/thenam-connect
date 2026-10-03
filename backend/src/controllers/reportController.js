@@ -99,6 +99,15 @@ const sendEmployeeReportEmail = asyncHandler(async (req, res) => {
 });
 
 /**
+ * GET /api/reports/emails/latest
+ * Retrieve latest report email (restricted to recipient or admin)
+ */
+const getLatestReportEmail = asyncHandler(async (req, res) => {
+  const email = await reportService.getLatestReportEmailForUser(req.user, req.query.employeeId);
+  return success(res, email, 'Latest report email retrieved successfully');
+});
+
+/**
  * GET /api/reports/emails/:id
  * Retrieve sent report email details (restricted to recipient or admin)
  */
@@ -130,6 +139,7 @@ module.exports = {
   downloadMyTaskReportPDF,
   downloadMyTaskReportExcel,
   sendEmployeeReportEmail,
+  getLatestReportEmail,
   getReportEmail,
   downloadReportEmailAttachment
 };
