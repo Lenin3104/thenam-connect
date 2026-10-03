@@ -454,8 +454,82 @@ export const useSendEmployeeReportEmail = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
     }
   });
+};
+
+export interface ReportEmailData {
+  _id: string;
+  sender: string;
+  senderName: string;
+  fromEmail: string;
+  recipient: string;
+  recipientEmployee: string;
+  recipientName: string;
+  recipientEmail: string;
+  subject: string;
+  message: string;
+  emailHtml: string;
+  emailText: string;
+  summary?: {
+    totalTasks: number;
+    completedTasks: number;
+    inProgressTasks: number;
+    pendingTasks: number;
+    overdueTasks: number;
+    totalPoints: number;
+  };
+  department: string;
+  hasPdf: boolean;
+  hasExcel: boolean;
+  pdfFilename?: string;
+  pdfSize?: number;
+  excelFilename?: string;
+  excelSize?: number;
+  status: string;
+  sentAt: string;
+  createdAt: string;
+}
+
+export const useReportEmail = (emailId?: string | null) => {
+  return useQuery<ReportEmailData>({
+    queryKey: ['report-email', emailId],
+    queryFn: async () => {
+      if (!emailId) throw new Error('Email ID is required');
+      const res = await api.get(`/reports/emails/${emailId}`);
+      return res.data.data;
+    },
+    enabled: Boolean(emailId),
+    retry: false
+  });
+};
+
+export const downloadReportEmailAttachment = async (
+  emailId: string,
+  type: 'pdf' | 'excel',
+  fallbackFilename?: string
+) => {
+  const res = await api.get(`/reports/emails/${emailId}/attachment/${type}`, {
+    responseType: 'blob'
+  });
+  const blob = new Blob([res.data], {
+    type:
+      type === 'pdf'
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute(
+    'download',
+    fallbackFilename || `Employee_Report.${type === 'pdf' ? 'pdf' : 'xlsx'}`
+  );
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 // --- Setting Hooks ---

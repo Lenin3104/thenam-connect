@@ -11,7 +11,9 @@ import {
   Award, Building2, UserCheck, ShieldCheck, Download, Loader2, Mail
 } from "lucide-react";
 import { SendReportEmailDialog } from "@/components/reports/SendReportEmailDialog";
-import { useState } from "react";
+import { ReportEmailDetailDialog } from "@/components/reports/ReportEmailDetailDialog";
+import { useState, useEffect } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import {
   useFinanceSummary,
   useDashboardStats,
@@ -41,6 +43,11 @@ import { canAccessRoute } from "@/lib/permissions";
 import { AccessDenied } from "@/components/rbac/AccessDenied";
 
 export const Route = createFileRoute("/_app/reports")({
+  validateSearch: (search: Record<string, unknown>) => {
+    return {
+      emailId: (search.emailId as string) || undefined,
+    };
+  },
   head: () => ({ meta: [{ title: "Task Reports & Analytics — Thenam ERP" }] }),
   component: ReportsPage,
 });
@@ -70,6 +77,24 @@ function ReportsPage() {
 
   // State for Send Employee Report Email modal
   const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
+
+  // Email report viewing modal state (triggered by emailId in searchParams or notification click)
+  const searchParams = Route.useSearch();
+  const navigate = useNavigate();
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(searchParams.emailId || null);
+
+  useEffect(() => {
+    if (searchParams.emailId) {
+      setSelectedEmailId(searchParams.emailId);
+    }
+  }, [searchParams.emailId]);
+
+  const handleCloseEmailDialog = () => {
+    setSelectedEmailId(null);
+    if (searchParams.emailId) {
+      navigate({ to: "/reports", search: {} as any });
+    }
+  };
 
   // Route Protection Check
   if (!canAccessRoute(user?.role, "/reports")) {
@@ -743,6 +768,13 @@ function ReportsPage() {
       <SendReportEmailDialog
         isOpen={isEmailDialogOpen}
         onClose={() => setIsEmailDialogOpen(false)}
+      />
+
+      {/* View Received Employee Report Email Dialog */}
+      <ReportEmailDetailDialog
+        emailId={selectedEmailId}
+        isOpen={Boolean(selectedEmailId)}
+        onClose={handleCloseEmailDialog}
       />
 
       <Toaster />

@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bell, MessageSquare, Menu, Plus, Search, Sun, Moon, Calendar, LogOut, User, Shield, Briefcase, CheckCircle2, Sparkles } from "lucide-react";
+import { Bell, MessageSquare, Menu, Plus, Search, Sun, Moon, Calendar, LogOut, User, Shield, Briefcase, CheckCircle2, Sparkles, FileText, Mail } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTheme } from "@/contexts/theme-context";
 import { AppSidebar } from "./app-sidebar";
@@ -281,15 +281,38 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
 
               <div className="max-h-80 overflow-y-auto space-y-1 py-1">
                 {!notifications || notifications.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">No notifications available</p>
+                  <p className="text-xs text-muted-foreground text-center py-6">No new notifications</p>
                 ) : (
                   notifications.slice(0, 10).map((n: any) => (
                     <div
                       key={n._id}
                       onClick={() => {
                         if (!n.isRead) markAsReadMutation.mutate(n._id);
-                        if (n.actionUrl) {
-                          window.location.href = n.actionUrl;
+                        if (
+                          n.type === "employee_report_email" ||
+                          n.entityType === "ReportEmail" ||
+                          n.metadata?.emailId
+                        ) {
+                          const targetEmailId = n.metadata?.emailId || n.entityId;
+                          if (targetEmailId) {
+                            navigate({ to: "/reports", search: { emailId: targetEmailId } as any });
+                          } else {
+                            navigate({ to: "/reports" as any });
+                          }
+                        } else if (n.actionUrl) {
+                          if (n.actionUrl.startsWith("/")) {
+                            const [path, qs] = n.actionUrl.split("?");
+                            const searchObj: Record<string, string> = {};
+                            if (qs) {
+                              const params = new URLSearchParams(qs);
+                              params.forEach((v, k) => {
+                                searchObj[k] = v;
+                              });
+                            }
+                            navigate({ to: path as any, search: searchObj as any });
+                          } else {
+                            window.location.href = n.actionUrl;
+                          }
                         } else {
                           navigate({ to: "/communication" });
                         }
@@ -301,7 +324,11 @@ export function AppTopbar({ onToggleSidebar }: { onToggleSidebar: () => void }) 
                       }`}
                     >
                       <div className={`p-1.5 rounded-lg shrink-0 mt-0.5 ${!n.isRead ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
-                        <Bell className="h-3.5 w-3.5" />
+                        {n.type === "employee_report_email" || n.entityType === "ReportEmail" ? (
+                          <FileText className="h-3.5 w-3.5 text-blue-500" />
+                        ) : (
+                          <Bell className="h-3.5 w-3.5" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-semibold text-foreground text-xs line-clamp-1">{n.title}</p>

@@ -172,11 +172,17 @@ function RootComponent() {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
     };
 
+    const handleEmployeeReportEmail = () => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["activity-logs"] });
+    };
+
     socket.on("connect", handleConnect);
     socket.on("invalidate", handleInvalidate);
     socket.on("notification:new", handleNotificationNew);
     socket.on("task:assigned", handleTaskAssigned);
     socket.on("announcement:new", handleAnnouncementNew);
+    socket.on("employee:report_email", handleEmployeeReportEmail);
 
     return () => {
       socket.off("connect", handleConnect);
@@ -184,6 +190,7 @@ function RootComponent() {
       socket.off("notification:new", handleNotificationNew);
       socket.off("task:assigned", handleTaskAssigned);
       socket.off("announcement:new", handleAnnouncementNew);
+      socket.off("employee:report_email", handleEmployeeReportEmail);
     };
   }, [queryClient]);
 
