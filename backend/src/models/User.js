@@ -124,6 +124,6 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ roles: 1 });
 userSchema.index({ status: 1 });
-userSchema.index({ firebaseUid: 1 });
 
 module.exports = mongoose.model('User', userSchema);
+

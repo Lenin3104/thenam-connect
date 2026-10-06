@@ -150,6 +150,6 @@ employeeSchema.virtual('taskCount', {
 employeeSchema.index({ venture: 1, team: 1 });
 employeeSchema.index({ venture: 1, department: 1 });
 employeeSchema.index({ status: 1, venture: 1 });
-employeeSchema.index({ firebaseUid: 1 });
 
 module.exports = mongoose.model('Employee', employeeSchema);
+
